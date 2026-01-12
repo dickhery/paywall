@@ -1,41 +1,145 @@
+:root {
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
 body {
-  font-family: sans-serif;
-  font-size: 1.5rem;
+  margin: 0;
+  font-family: 'Inter', system-ui, sans-serif;
+  background: #f4f6fb;
+  color: #1d1f27;
 }
 
-img {
-  max-width: 50vw;
-  max-height: 25vw;
-  display: block;
-  margin: auto;
+.app {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 40px 24px 80px;
+  display: grid;
+  gap: 24px;
 }
 
-form {
+.hero {
+  background: linear-gradient(135deg, #0f62fe 0%, #6f2cff 100%);
+  color: #fff;
+  padding: 32px;
+  border-radius: 20px;
+  box-shadow: 0 12px 30px rgba(15, 98, 254, 0.25);
+}
+
+.hero h1 {
+  margin: 0 0 12px;
+  font-size: 2.2rem;
+}
+
+.hero p {
+  margin: 0;
+  font-size: 1rem;
+  opacity: 0.9;
+}
+
+.card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 12px 24px rgba(15, 20, 55, 0.08);
+  display: grid;
+  gap: 16px;
+}
+
+.card h2 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.form {
+  display: grid;
+  gap: 16px;
+}
+
+.form label {
+  display: grid;
+  gap: 8px;
+  font-size: 0.95rem;
+}
+
+input {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #d5d9e6;
+  font-size: 0.95rem;
+}
+
+button {
+  border: none;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: #0f62fe;
+  color: #fff;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 8px 16px rgba(15, 98, 254, 0.2);
+}
+
+button:hover {
+  transform: translateY(-1px);
+}
+
+button:disabled {
+  background: #9fb7f9;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+.stack {
+  display: grid;
+  gap: 12px;
+}
+
+.row {
   display: flex;
-  justify-content: center;
-  gap: 0.5em;
-  flex-flow: row wrap;
-  max-width: 40vw;
-  margin: auto;
-  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
-button[type="submit"] {
-  padding: 5px 20px;
-  margin: 10px auto;
-  float: right;
+.mono {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, SFMono-Regular,
+    Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
 }
 
-#greeting {
-  margin: 10px auto;
-  padding: 10px 60px;
-  border: 1px solid #222;
+.hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #5b627a;
 }
 
-#greeting:empty {
-  display: none;
+.result {
+  padding: 16px;
+  border-radius: 12px;
+  background: #f5f8ff;
+  border: 1px solid #d9e4ff;
+  display: grid;
+  gap: 8px;
 }
 
-.browser-warning {
-  display: none;
+.result code {
+  display: block;
+  background: #111827;
+  color: #e5e7eb;
+  padding: 12px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  word-break: break-all;
+}
+
+.status {
+  padding: 10px 12px;
+  background: #eef2ff;
+  border-radius: 8px;
+  color: #1f2a68;
+  font-size: 0.9rem;
 }

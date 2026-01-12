@@ -26,7 +26,7 @@ const idlFactory = ({ IDL }) => {
   });
 };
 
-const buildOverlay = (price, onPay) => {
+const buildOverlay = (price, onLogin, onPay) => {
   const overlay = document.createElement('div');
   overlay.style.cssText =
     'position:fixed;inset:0;background:rgba(6,9,20,0.88);color:#fff;z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;';
@@ -36,9 +36,11 @@ const buildOverlay = (price, onPay) => {
   panel.innerHTML = `
     <h2 style="margin:0 0 12px;font-size:24px;">Payment required</h2>
     <p style="margin:0 0 16px;font-size:16px;">Pay ${price} ICP to continue.</p>
-    <button id="paywall-pay" style="background:#4f46e5;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:16px;cursor:pointer;">Pay now</button>
+    <button id="paywall-login" style="background:#4f46e5;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:16px;cursor:pointer;margin-bottom:12px;">Log in to check access</button>
+    <button id="paywall-pay" style="display:none;background:#4f46e5;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:16px;cursor:pointer;">Pay now</button>
   `;
   overlay.appendChild(panel);
+  overlay.querySelector('#paywall-login').addEventListener('click', onLogin);
   overlay.querySelector('#paywall-pay').addEventListener('click', onPay);
   return overlay;
 };
@@ -61,9 +63,6 @@ const run = async () => {
     canisterId: backendId,
   });
 
-  const hasAccess = await actor.hasAccess(Principal.anonymous(), paywallId);
-  if (hasAccess) return;
-
   const config = await actor.getPaywallConfig(paywallId);
   if (!config) return;
 
@@ -80,6 +79,23 @@ const run = async () => {
 
     const identity = authClient.getIdentity();
     agent.replaceIdentity(identity);
+    const authedActor = Actor.createActor(idlFactory({ IDL }), {
+      agent,
+      canisterId: backendId,
+    });
+
+    const hasAccess = await authedActor.hasAccess(
+      identity.getPrincipal(),
+      paywallId,
+    );
+    if (hasAccess) {
+      overlay.remove();
+      return;
+    }
+
+    overlay.querySelector('#paywall-login').style.display = 'none';
+    overlay.querySelector('#paywall-pay').style.display = 'inline-block';
+  }, async () => {
     const authedActor = Actor.createActor(idlFactory({ IDL }), {
       agent,
       canisterId: backendId,

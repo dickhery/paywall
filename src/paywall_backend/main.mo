@@ -10,6 +10,7 @@ import Principal "mo:base/Principal";
 import Random "mo:base/Random";
 import Text "mo:base/Text";
 import Time "mo:base/Time";
+import Prim "mo:⛔";
 
 actor Paywall {
   type Account = {
@@ -59,10 +60,10 @@ actor Paywall {
   stable var nextPaywallId : Nat = 0;
   stable var salt : [Nat8] = [];
 
-  let ledger : Ledger = actor ("ryjl3-tyaaa-aaaaa-aaaba-cai");
+  transient let ledger : Ledger = actor ("ryjl3-tyaaa-aaaaa-aaaba-cai");
 
-  var paywallConfigs = HashMap.HashMap<Text, PaywallConfig>(0, Text.equal, Text.hash);
-  var paidStatuses = HashMap.HashMap<Principal, HashMap.HashMap<Text, Int>>(
+  transient var paywallConfigs = HashMap.HashMap<Text, PaywallConfig>(0, Text.equal, Text.hash);
+  transient var paidStatuses = HashMap.HashMap<Principal, HashMap.HashMap<Text, Int>>(
     0,
     Principal.equal,
     Principal.hash,
@@ -71,7 +72,7 @@ actor Paywall {
   system func preupgrade() {
     paywallConfigEntries := Iter.toArray(paywallConfigs.entries());
     paidStatusEntries := Iter.toArray(
-      Iter.map(
+      Iter.map<((Principal, HashMap.HashMap<Text, Int>)), (Principal, [(Text, Int)])>(
         paidStatuses.entries(),
         func(entry : (Principal, HashMap.HashMap<Text, Int>)) : (Principal, [(Text, Int)]) {
           (entry.0, Iter.toArray(entry.1.entries()));
@@ -111,9 +112,13 @@ actor Paywall {
 
   private func deriveSubaccount(paywallId : Text, user : Principal) : async Blob {
     let saltBlob = await getSalt();
-    let payload = Blob.toArray(saltBlob)
-      # Blob.toArray(Text.encodeUtf8(paywallId))
-      # Blob.toArray(Principal.toBlob(user));
+    let payload = Array.append(
+      Blob.toArray(saltBlob),
+      Array.append(
+        Blob.toArray(Text.encodeUtf8(paywallId)),
+        Blob.toArray(Principal.toBlob(user)),
+      ),
+    );
     let output = Array.init<Nat8>(32, 0);
     var index = 0;
     for (byte in payload.vals()) {
@@ -121,7 +126,7 @@ actor Paywall {
       output[slot] := Nat8.fromNat((Nat8.toNat(output[slot]) + Nat8.toNat(byte)) % 256);
       index += 1;
     };
-    Blob.fromArray(output);
+    Blob.fromArray(Array.freeze(output));
   };
 
   public shared(msg) func createPaywall(config : PaywallConfig) : async Text {
@@ -173,7 +178,7 @@ actor Paywall {
       created_at_time = null;
     });
 
-    let expiry = Time.now() + Int.fromNat(config.session_duration_ns);
+    let expiry = Time.now() + Prim.natToInt(config.session_duration_ns);
     let userMap = switch (paidStatuses.get(caller)) {
       case (?existing) existing;
       case null {

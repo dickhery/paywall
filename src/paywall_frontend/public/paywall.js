@@ -1,8 +1,8 @@
-import { Actor, HttpAgent } from 'https://cdn.jsdelivr.net/npm/@dfinity/agent@3.1.0/+esm';
-import { AuthClient } from 'https://cdn.jsdelivr.net/npm/@dfinity/auth-client@3.1.0/+esm';
-import { LedgerCanister } from 'https://cdn.jsdelivr.net/npm/@dfinity/ledger-icp@3.1.0/+esm';
-import { Principal } from 'https://cdn.jsdelivr.net/npm/@dfinity/principal@3.1.0/+esm';
-import { IDL } from 'https://cdn.jsdelivr.net/npm/@dfinity/candid@3.1.0/+esm';
+import { Actor, HttpAgent } from 'https://cdn.jsdelivr.net/npm/@dfinity/agent@2.4.0/+esm';
+import { AuthClient } from 'https://cdn.jsdelivr.net/npm/@dfinity/auth-client@2.4.0/+esm';
+import { LedgerCanister } from 'https://cdn.jsdelivr.net/npm/@dfinity/ledger-icp@2.4.0/+esm';
+import { Principal } from 'https://cdn.jsdelivr.net/npm/@dfinity/principal@2.4.0/+esm';
+import { IDL } from 'https://cdn.jsdelivr.net/npm/@dfinity/candid@2.4.0/+esm';
 
 const II_URL = 'https://identity.ic0.app/#authorize';
 const DEFAULT_LEDGER_ID = 'ryjl3-tyaaa-aaaaa-aaaba-cai';

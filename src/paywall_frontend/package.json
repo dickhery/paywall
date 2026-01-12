@@ -13,11 +13,11 @@
     "deploy-ic": "dfx deploy --network ic"
   },
   "dependencies": {
-    "@dfinity/agent": "^3.0.0",
-    "@dfinity/auth-client": "^3.0.0",
-    "@dfinity/candid": "^3.0.0",
-    "@dfinity/ledger-icp": "^3.0.0",
-    "@dfinity/principal": "^3.0.0",
+    "@dfinity/agent": "^2.4.0",
+    "@dfinity/auth-client": "^2.4.0",
+    "@dfinity/candid": "^2.4.0",
+    "@dfinity/ledger-icp": "^2.4.0",
+    "@dfinity/principal": "^2.4.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },

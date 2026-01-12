@@ -1,12 +1,13 @@
+import Array "mo:base/Array";
 import Blob "mo:base/Blob";
 import HashMap "mo:base/HashMap";
 import Int "mo:base/Int";
 import Iter "mo:base/Iter";
 import Nat "mo:base/Nat";
+import Nat8 "mo:base/Nat8";
 import Nat64 "mo:base/Nat64";
 import Principal "mo:base/Principal";
 import Random "mo:base/Random";
-import SHA256 "mo:base/SHA256";
 import Text "mo:base/Text";
 import Time "mo:base/Time";
 
@@ -113,8 +114,14 @@ actor Paywall {
     let payload = Blob.toArray(saltBlob)
       # Blob.toArray(Text.encodeUtf8(paywallId))
       # Blob.toArray(Principal.toBlob(user));
-    let hash = SHA256.sha256(payload);
-    Blob.fromArray(hash);
+    let output = Array.init<Nat8>(32, 0);
+    var index = 0;
+    for (byte in payload.vals()) {
+      let slot = index % 32;
+      output[slot] := Nat8.fromNat((Nat8.toNat(output[slot]) + Nat8.toNat(byte)) % 256);
+      index += 1;
+    };
+    Blob.fromArray(output);
   };
 
   public shared(msg) func createPaywall(config : PaywallConfig) : async Text {

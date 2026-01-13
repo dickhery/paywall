@@ -46,10 +46,12 @@ const buildOverlay = (price, onLogin, onPay) => {
 };
 
 const run = async () => {
-  const params = new URLSearchParams(window.location.search);
-  const paywallId = params.get('paywallId');
   const scriptTag = document.querySelector('script[data-paywall]');
-  if (!paywallId || !scriptTag) return;
+  if (!scriptTag) return;
+  const scriptSrc = scriptTag.src || '';
+  const paywallUrl = scriptSrc ? new URL(scriptSrc) : null;
+  const paywallId = paywallUrl?.searchParams.get('paywallId');
+  if (!paywallId) return;
   const backendId =
     scriptTag.dataset.backendId || window.PAYWALL_BACKEND_ID || '';
   const ledgerId =

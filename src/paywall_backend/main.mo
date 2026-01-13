@@ -182,7 +182,7 @@ persistent actor Paywall {
       subaccount[index + 1] := byte;
       index += 1;
     };
-    ?Blob.fromArray(subaccount);
+    ?Blob.fromArray(Array.freeze(subaccount));
   };
 
   private func mintCycles(amount : Nat, from_subaccount : ?Blob, destination : Principal) : async Bool {

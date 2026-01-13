@@ -290,7 +290,7 @@ persistent actor Paywall {
       };
     };
 
-    if (!paid) {
+    if (not paid) {
       return false;
     };
 
@@ -340,7 +340,7 @@ persistent actor Paywall {
       };
     };
 
-    if (!paid) {
+    if (not paid) {
       return false;
     };
 

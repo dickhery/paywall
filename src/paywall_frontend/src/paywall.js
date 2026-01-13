@@ -76,7 +76,7 @@ const run = async () => {
     if (!backendId) return;
 
     const agent = new HttpAgent({ host: 'https://icp0.io' });
-    const actor = Actor.createActor(idlFactory({ IDL }), {
+    const actor = Actor.createActor(idlFactory, {
       agent,
       canisterId: backendId,
     });
@@ -99,7 +99,7 @@ const run = async () => {
 
       const identity = authClient.getIdentity();
       agent.replaceIdentity(identity);
-      const authedActor = Actor.createActor(idlFactory({ IDL }), {
+      const authedActor = Actor.createActor(idlFactory, {
         agent,
         canisterId: backendId,
       });
@@ -184,7 +184,7 @@ const run = async () => {
       overlay.querySelector('#paywall-login').style.display = 'none';
       overlay.querySelector('#paywall-pay').style.display = 'inline-block';
     }, async () => {
-      const authedActor = Actor.createActor(idlFactory({ IDL }), {
+      const authedActor = Actor.createActor(idlFactory, {
         agent,
         canisterId: backendId,
       });

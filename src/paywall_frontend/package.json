@@ -8,14 +8,18 @@
     "start": "vite --port 3000",
     "prebuild": "dfx generate",
     "build": "tsc && vite build",
-    "format": "prettier --write \"src/**/*.{json,js,jsx,ts,tsx,css,scss}\""
+    "format": "prettier --write \"src/**/*.{json,js,jsx,ts,tsx,css,scss}\"",
+    "deploy-local": "dfx deploy --network local",
+    "deploy-ic": "dfx deploy --network ic"
   },
   "dependencies": {
+    "@dfinity/agent": "^2.4.0",
+    "@dfinity/auth-client": "^2.4.0",
+    "@dfinity/candid": "^2.4.0",
+    "@dfinity/ledger-icp": "^2.4.0",
+    "@dfinity/principal": "^2.4.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "@dfinity/agent": "^3.0.0",
-    "@dfinity/candid": "^3.0.0",
-    "@dfinity/principal": "^3.0.0"
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.14",

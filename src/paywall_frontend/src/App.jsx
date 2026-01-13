@@ -1,29 +1,285 @@
-import { useState } from 'react';
-import { paywall_backend } from 'declarations/paywall_backend';
+import { useCallback, useMemo, useState } from 'react';
+import { AuthClient } from '@dfinity/auth-client';
+import { Principal } from '@dfinity/principal';
+import { createActor, paywall_backend } from 'declarations/paywall_backend';
+
+const LEDGER_FEE_E8S = 10_000n;
+const DEFAULT_SESSION_NS = 3_600_000_000_000n;
+const MAINNET_II_URL = 'https://identity.ic0.app/#authorize';
+
+const toE8s = (icpValue) => {
+  const parsed = Number.parseFloat(icpValue || '0');
+  if (Number.isNaN(parsed)) {
+    return 0n;
+  }
+  return BigInt(Math.round(parsed * 100_000_000));
+};
+
+const blobToHex = (blob) => {
+  if (!blob) return '';
+  return Array.from(blob)
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+};
 
 function App() {
-  const [greeting, setGreeting] = useState('');
+  const [authClient, setAuthClient] = useState(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [principalText, setPrincipalText] = useState('');
 
-  function handleSubmit(event) {
-    event.preventDefault();
-    const name = event.target.elements.name.value;
-    paywall_backend.greet(name).then((greeting) => {
-      setGreeting(greeting);
+  const [priceIcp, setPriceIcp] = useState('0.1');
+  const [destination, setDestination] = useState('');
+  const [targetCanister, setTargetCanister] = useState('');
+  const [sessionDurationNs, setSessionDurationNs] = useState(
+    DEFAULT_SESSION_NS.toString(),
+  );
+
+  const [paywallId, setPaywallId] = useState('');
+  const [paymentAccount, setPaymentAccount] = useState(null);
+  const [paymentStatus, setPaymentStatus] = useState('');
+  const [lookupId, setLookupId] = useState('');
+
+  const identityProvider = useMemo(() => {
+    if (process.env.DFX_NETWORK === 'ic') {
+      return MAINNET_II_URL;
+    }
+    return process.env.DFX_IDENTITY_PROVIDER || MAINNET_II_URL;
+  }, []);
+
+  const getActor = useCallback(
+    async (client) => {
+      const identity = client?.getIdentity();
+      if (!identity) return paywall_backend;
+      return createActor(process.env.CANISTER_ID_PAYWALL_BACKEND, {
+        agentOptions: { identity },
+      });
+    },
+    [],
+  );
+
+  const handleLogin = async () => {
+    const client = await AuthClient.create();
+    await new Promise((resolve, reject) => {
+      client.login({
+        identityProvider,
+        onSuccess: resolve,
+        onError: reject,
+      });
     });
-    return false;
-  }
+    const identity = client.getIdentity();
+    setAuthClient(client);
+    setIsAuthenticated(true);
+    setPrincipalText(identity.getPrincipal().toText());
+  };
+
+  const handleLogout = async () => {
+    if (authClient) {
+      await authClient.logout();
+    }
+    setAuthClient(null);
+    setIsAuthenticated(false);
+    setPrincipalText('');
+  };
+
+  const handleCreatePaywall = async (event) => {
+    event.preventDefault();
+    setPaymentStatus('');
+
+    const actor = await getActor(authClient);
+    const config = {
+      price_e8s: toE8s(priceIcp),
+      destination: Principal.fromText(destination),
+      target_canister: Principal.fromText(targetCanister),
+      session_duration_ns: BigInt(sessionDurationNs || '0'),
+    };
+
+    const createdId = await actor.createPaywall(config);
+    setPaywallId(createdId);
+    setLookupId(createdId);
+  };
+
+  const handleLookup = async () => {
+    setPaymentStatus('');
+    if (!lookupId) return;
+    const actor = await getActor(authClient);
+    const account = await actor.getPaymentAccount(lookupId);
+    setPaymentAccount(account || null);
+  };
+
+  const handleVerifyPayment = async () => {
+    setPaymentStatus('');
+    if (!lookupId) return;
+    const actor = await getActor(authClient);
+    const verified = await actor.verifyPayment(lookupId);
+    setPaymentStatus(
+      verified
+        ? 'Payment verified. Access is active for your session duration.'
+        : 'Payment not detected yet. Make sure the ledger transfer has completed.',
+    );
+  };
+
+  const handleCheckAccess = async () => {
+    if (!lookupId || !principalText) return;
+    const actor = await getActor(authClient);
+    const hasAccess = await actor.hasAccess(
+      Principal.fromText(principalText),
+      lookupId,
+    );
+    setPaymentStatus(hasAccess ? 'Access is active.' : 'Access is not active.');
+  };
 
   return (
-    <main>
-      <img src="/logo2.svg" alt="DFINITY logo" />
-      <br />
-      <br />
-      <form action="#" onSubmit={handleSubmit}>
-        <label htmlFor="name">Enter your name: &nbsp;</label>
-        <input id="name" alt="Name" type="text" />
-        <button type="submit">Click Me!</button>
-      </form>
-      <section id="greeting">{greeting}</section>
+    <main className="app">
+      <header className="hero">
+        <h1>ICP Paywall Builder</h1>
+        <p>
+          Configure paywalls, generate embed scripts, and verify access using
+          Internet Identity and ICP ledger payments.
+        </p>
+      </header>
+
+      <section className="card">
+        <h2>Authentication</h2>
+        {isAuthenticated ? (
+          <div className="stack">
+            <p>
+              Signed in as <span className="mono">{principalText}</span>
+            </p>
+            <button type="button" onClick={handleLogout}>
+              Sign out
+            </button>
+          </div>
+        ) : (
+          <button type="button" onClick={handleLogin}>
+            Sign in with Internet Identity
+          </button>
+        )}
+      </section>
+
+      <section className="card">
+        <h2>Create a paywall</h2>
+        <form className="form" onSubmit={handleCreatePaywall}>
+          <label>
+            Price (ICP)
+            <input
+              type="number"
+              step="0.00000001"
+              min="0"
+              value={priceIcp}
+              onChange={(event) => setPriceIcp(event.target.value)}
+              required
+            />
+          </label>
+          <label>
+            Destination principal
+            <input
+              type="text"
+              value={destination}
+              onChange={(event) => setDestination(event.target.value)}
+              placeholder="aaaaa-aa"
+              required
+            />
+          </label>
+          <label>
+            Target canister principal
+            <input
+              type="text"
+              value={targetCanister}
+              onChange={(event) => setTargetCanister(event.target.value)}
+              placeholder="aaaaa-aa"
+              required
+            />
+          </label>
+          <label>
+            Session duration (nanoseconds)
+            <input
+              type="number"
+              min="0"
+              value={sessionDurationNs}
+              onChange={(event) => setSessionDurationNs(event.target.value)}
+              required
+            />
+          </label>
+          <p className="hint">
+            Transfers should include the standard ledger fee of{' '}
+            {Number(LEDGER_FEE_E8S) / 100_000_000} ICP.
+          </p>
+          <button type="submit" disabled={!isAuthenticated}>
+            Create paywall
+          </button>
+        </form>
+
+        {paywallId && (
+          <div className="result">
+            <h3>Paywall created</h3>
+            <p>
+              Paywall ID: <span className="mono">{paywallId}</span>
+            </p>
+            <p>Embed this script in your site:</p>
+            <code>
+              {`<script type="module" data-paywall data-backend-id="${process.env.CANISTER_ID_PAYWALL_BACKEND}" src="https://<YOUR_ASSET_CANISTER>.icp0.io/paywall.js?paywallId=${paywallId}"></script>`}
+            </code>
+            <p className="hint">
+              Set <span className="mono">data-backend-id</span> to your paywall
+              backend canister ID when embedding on non-ICP sites.
+            </p>
+          </div>
+        )}
+      </section>
+
+      <section className="card">
+        <h2>Payment verification</h2>
+        <p>
+          Use this tool to retrieve the payment subaccount for your principal,
+          then verify payment once the ledger transfer is complete.
+        </p>
+        <div className="stack">
+          <label>
+            Paywall ID
+            <input
+              type="text"
+              value={lookupId}
+              onChange={(event) => setLookupId(event.target.value)}
+            />
+          </label>
+          <div className="row">
+            <button type="button" onClick={handleLookup}>
+              Get payment account
+            </button>
+            <button
+              type="button"
+              onClick={handleVerifyPayment}
+              disabled={!isAuthenticated}
+            >
+              Verify payment
+            </button>
+            <button
+              type="button"
+              onClick={handleCheckAccess}
+              disabled={!isAuthenticated}
+            >
+              Check access
+            </button>
+          </div>
+        </div>
+
+        {paymentAccount && (
+          <div className="result">
+            <p>
+              Transfer to owner:{' '}
+              <span className="mono">{paymentAccount.owner.toText()}</span>
+            </p>
+            <p>
+              Subaccount:{' '}
+              <span className="mono">
+                {blobToHex(paymentAccount.subaccount?.[0]) || 'none'}
+              </span>
+            </p>
+          </div>
+        )}
+
+        {paymentStatus && <p className="status">{paymentStatus}</p>}
+      </section>
     </main>
   );
 }

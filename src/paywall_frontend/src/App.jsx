@@ -217,7 +217,7 @@ function App() {
             </p>
             <p>Embed this script in your site:</p>
             <code>
-              {`<script type="module" data-paywall data-backend-id="${process.env.CANISTER_ID_PAYWALL_BACKEND}" src="https://<YOUR_ASSET_CANISTER>.icp0.io/paywall.js?paywallId=${paywallId}"></script>`}
+              {`<script type="module" data-paywall data-backend-id="${process.env.CANISTER_ID_PAYWALL_BACKEND}" src="https://${process.env.CANISTER_ID_PAYWALL_FRONTEND}.icp0.io/paywall.js?paywallId=${paywallId}"></script>`}
             </code>
             <p className="hint">
               Set <span className="mono">data-backend-id</span> to your paywall

@@ -1,4 +1,5 @@
 import { fileURLToPath, URL } from 'url';
+import { resolve } from 'node:path';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import environment from 'vite-plugin-environment';
@@ -9,6 +10,16 @@ dotenv.config({ path: '../../.env' });
 export default defineConfig({
   build: {
     emptyOutDir: true,
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        paywall: resolve(__dirname, 'src/paywall.js'),
+      },
+      output: {
+        entryFileNames: (chunk) =>
+          chunk.name === 'paywall' ? 'paywall.js' : 'assets/[name]-[hash].js',
+      },
+    },
   },
   optimizeDeps: {
     esbuildOptions: {

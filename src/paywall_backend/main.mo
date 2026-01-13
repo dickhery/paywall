@@ -10,9 +10,7 @@ import Principal "mo:base/Principal";
 import Random "mo:base/Random";
 import Text "mo:base/Text";
 import Time "mo:base/Time";
-import Prim "mo:⛔";
-
-actor Paywall {
+persistent actor Paywall {
   type Account = {
     owner : Principal;
     subaccount : ?Blob;
@@ -178,7 +176,7 @@ actor Paywall {
       created_at_time = null;
     });
 
-    let expiry = Time.now() + Prim.natToInt(config.session_duration_ns);
+    let expiry = Time.now() + config.session_duration_ns;
     let userMap = switch (paidStatuses.get(caller)) {
       case (?existing) existing;
       case null {

@@ -213,6 +213,10 @@ function App() {
               </label>
               <label>
                 Session duration
+                <span className="hint">
+                  Choose how long users keep access after payment (hours,
+                  minutes, and seconds).
+                </span>
                 <div className="time-inputs">
                   <input
                     type="number"

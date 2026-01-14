@@ -74,6 +74,11 @@ const copyToClipboard = async (text) => {
   document.body.removeChild(textarea);
 };
 
+const safeStringify = (value) =>
+  JSON.stringify(value, (_, entry) =>
+    typeof entry === 'bigint' ? entry.toString() : entry,
+  );
+
 const run = async () => {
   try {
     const scriptTag = document.querySelector('script[data-paywall]');
@@ -287,9 +292,9 @@ const run = async () => {
               to,
             );
             if ('Ok' in result) {
-              alert(`Withdraw successful! Block index: ${result.Ok}`);
+              alert(`Withdraw successful! Block index: ${result.Ok.toString()}`);
             } else {
-              alert(`Withdraw failed: ${JSON.stringify(result.Err)}`);
+              alert(`Withdraw failed: ${safeStringify(result.Err)}`);
             }
           } catch (error) {
             console.error('Withdrawal error:', error);

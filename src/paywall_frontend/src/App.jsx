@@ -140,7 +140,7 @@ function App() {
   return (
     <main className="app">
       <header className="hero">
-        <h1>ICP Paywall Builder</h1>
+        <h1>IC Paywall Builder</h1>
         <p>
           Configure paywalls, generate embed scripts, and verify access using
           Internet Identity and ICP ledger payments.

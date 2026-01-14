@@ -139,7 +139,7 @@ const run = async () => {
           agent,
           canisterId: Principal.fromText(ledgerId),
         });
-        const userSubaccount = userAccount.subaccount?.[0];
+        const userSubaccount = userAccount.subaccount ?? undefined;
         let userBalanceE8s = 0n;
         try {
           const accountIdentifier = principalToAccountIdentifier(
@@ -246,7 +246,7 @@ const run = async () => {
           const amountE8s = BigInt(Math.round(amountIcp * 100_000_000));
           const to = {
             owner: Principal.fromText(destination),
-            subaccount: undefined,
+            subaccount: null,
           };
           const result = await authedActor.withdrawFromWallet(amountE8s, to);
           if ('Err' in result) {
@@ -290,7 +290,7 @@ const run = async () => {
           canisterId: Principal.fromText(ledgerId),
         });
 
-        const subaccount = paymentAccount.subaccount?.[0];
+        const subaccount = paymentAccount.subaccount ?? undefined;
         await ledger.icrc1Transfer({
           to: {
             owner: paymentAccount.owner,

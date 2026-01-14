@@ -33,6 +33,7 @@ function App() {
   const [sessionDurationNs, setSessionDurationNs] = useState(
     DEFAULT_SESSION_NS.toString(),
   );
+  const [convertToCycles, setConvertToCycles] = useState(false);
 
   const [paywallId, setPaywallId] = useState('');
   const [paymentAccount, setPaymentAccount] = useState(null);
@@ -91,6 +92,7 @@ function App() {
       destination: Principal.fromText(destination),
       target_canister: Principal.fromText(targetCanister),
       session_duration_ns: BigInt(sessionDurationNs || '0'),
+      convertToCycles,
     };
 
     const createdId = await actor.createPaywall(config);
@@ -198,6 +200,14 @@ function App() {
               value={sessionDurationNs}
               onChange={(event) => setSessionDurationNs(event.target.value)}
               required
+            />
+          </label>
+          <label>
+            Convert payments to cycles before sending?
+            <input
+              type="checkbox"
+              checked={convertToCycles}
+              onChange={(event) => setConvertToCycles(event.target.checked)}
             />
           </label>
           <p className="hint">

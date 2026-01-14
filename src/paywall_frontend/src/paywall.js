@@ -119,10 +119,17 @@ const run = async () => {
         canisterId: ledgerId,
       });
       const userSubaccount = userAccount.subaccount?.[0];
-      const userBalanceE8s = await ledger.balanceOf({
-        owner: userAccount.owner,
-        subaccount: userSubaccount,
-      });
+      let userBalanceE8s;
+      try {
+        userBalanceE8s = await ledger.icrc1_balance_of({
+          owner: userAccount.owner,
+          subaccount: userSubaccount,
+        });
+      } catch (error) {
+        console.error('Error fetching user balance:', error);
+        alert('Failed to fetch your balance. Please try again.');
+        return;
+      }
       const userBalanceIcp = Number(userBalanceE8s) / 100_000_000;
 
       const details = overlay.querySelector('#paywall-details');
@@ -204,16 +211,29 @@ const run = async () => {
       });
 
       const subaccount = paymentAccount.subaccount?.[0];
-      await ledger.transfer({
-        to: {
-          owner: paymentAccount.owner,
-          subaccount,
-        },
-        amount: config.price_e8s,
-        fee: 10_000n,
-      });
+      try {
+        await ledger.icrc1_transfer({
+          to: {
+            owner: paymentAccount.owner,
+            subaccount,
+          },
+          amount: config.price_e8s,
+          fee: 10_000n,
+        });
+      } catch (error) {
+        console.error('Error during transfer:', error);
+        alert('Payment transfer failed. Please try again.');
+        return;
+      }
 
-      const verified = await authedActor.verifyPayment(paywallId);
+      let verified = false;
+      try {
+        verified = await authedActor.verifyPayment(paywallId);
+      } catch (error) {
+        console.error('Error verifying payment:', error);
+        alert('Payment verification failed. Please try again.');
+        return;
+      }
       if (verified) {
         overlay.remove();
       } else {

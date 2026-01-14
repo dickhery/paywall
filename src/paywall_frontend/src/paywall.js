@@ -1,11 +1,16 @@
 import { Actor, HttpAgent } from '@dfinity/agent';
 import { AuthClient } from '@dfinity/auth-client';
 import { IDL } from '@dfinity/candid';
+import { Buffer } from 'buffer';
 import { LedgerCanister, principalToAccountIdentifier } from '@dfinity/ledger-icp';
 import { Principal } from '@dfinity/principal';
 
 const II_URL = 'https://identity.ic0.app/#authorize';
 const DEFAULT_LEDGER_ID = 'ryjl3-tyaaa-aaaaa-aaaba-cai';
+
+if (!globalThis.Buffer) {
+  globalThis.Buffer = Buffer;
+}
 
 const idlFactory = ({ IDL }) => {
   const PaywallConfig = IDL.Record({

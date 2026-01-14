@@ -239,20 +239,20 @@ const run = async () => {
           if (!destination) return;
 
           const subaccountText = prompt(
-            'Enter subaccount as hex string (optional, leave blank for default):',
+            'Enter subaccount as hex string (exactly 64 characters, optional, leave blank for default):',
           );
-          let subaccount = null;
-          if (subaccountText) {
-            if (subaccountText.length % 2 !== 0 || subaccountText.length > 64) {
-              alert(
-                'Invalid subaccount hex: Must be even length, max 32 bytes (64 hex chars).',
-              );
+          if (subaccountText === null) return;
+          const trimmedText = subaccountText.trim();
+          let subaccount = [];
+          if (trimmedText !== '') {
+            if (trimmedText.length !== 64) {
+              alert('Invalid subaccount hex: Must be exactly 64 characters.');
               return;
             }
             subaccount = [];
-            for (let i = 0; i < subaccountText.length; i += 2) {
+            for (let i = 0; i < trimmedText.length; i += 2) {
               const byte = Number.parseInt(
-                subaccountText.slice(i, i + 2),
+                trimmedText.slice(i, i + 2),
                 16,
               );
               if (Number.isNaN(byte)) {
@@ -276,7 +276,7 @@ const run = async () => {
           const amountE8s = BigInt(Math.round(amountIcp * 100_000_000));
           const to = {
             owner: Principal.fromText(destination),
-            subaccount,
+            subaccount: trimmedText === '' ? [] : [subaccount],
           };
 
           withdrawButton.disabled = true;

@@ -243,14 +243,14 @@ const run = async () => {
           );
           if (subaccountText === null) return;
           const trimmedText = subaccountText.trim();
-          let subaccount = [];
+          let subaccountBytes = null;
           if (trimmedText !== '') {
             if (trimmedText.length !== 64) {
               alert('Invalid subaccount hex: Must be exactly 64 characters.');
               return;
             }
-            subaccount = [];
-            for (let i = 0; i < trimmedText.length; i += 2) {
+            subaccountBytes = new Uint8Array(32);
+            for (let i = 0; i < 64; i += 2) {
               const byte = Number.parseInt(
                 trimmedText.slice(i, i + 2),
                 16,
@@ -261,7 +261,7 @@ const run = async () => {
                 );
                 return;
               }
-              subaccount.push(byte);
+              subaccountBytes[i / 2] = byte;
             }
           }
 
@@ -276,7 +276,7 @@ const run = async () => {
           const amountE8s = BigInt(Math.round(amountIcp * 100_000_000));
           const to = {
             owner: Principal.fromText(destination),
-            subaccount: trimmedText === '' ? [] : [subaccount],
+            subaccount: subaccountBytes ? [subaccountBytes] : [],
           };
 
           withdrawButton.disabled = true;

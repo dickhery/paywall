@@ -106,6 +106,16 @@ button:disabled {
   gap: 12px;
 }
 
+.time-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.time-inputs input {
+  min-width: 120px;
+}
+
 .mono {
   font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, SFMono-Regular,
     Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;

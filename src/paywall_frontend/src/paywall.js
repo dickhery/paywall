@@ -58,6 +58,22 @@ const buildOverlay = (price, onLogin, onPay) => {
   return overlay;
 };
 
+const copyToClipboard = async (text) => {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'absolute';
+  textarea.style.left = '-9999px';
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand('copy');
+  document.body.removeChild(textarea);
+};
+
 const run = async () => {
   try {
     const scriptTag = document.querySelector('script[data-paywall]');
@@ -170,9 +186,40 @@ const run = async () => {
             userAccount.owner,
             userSubaccount,
           );
-          const depositInfo = document.createElement('p');
+          const depositInfo = document.createElement('div');
           depositInfo.style.margin = '0 0 12px';
-          depositInfo.textContent = `Deposit ICP to account: ${accountIdentifier}.`;
+          const depositLabel = document.createElement('p');
+          depositLabel.style.margin = '0 0 8px';
+          depositLabel.textContent = 'Deposit ICP to this account:';
+          const depositRow = document.createElement('div');
+          depositRow.style.cssText =
+            'display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;';
+          const accountSpan = document.createElement('span');
+          accountSpan.className = 'mono';
+          accountSpan.textContent = accountIdentifier;
+          accountSpan.style.cssText =
+            'word-break:break-all;display:block;max-width:100%;';
+          const copyButton = document.createElement('button');
+          copyButton.type = 'button';
+          copyButton.textContent = 'Copy';
+          copyButton.style.cssText =
+            'background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer;';
+          copyButton.addEventListener('click', async () => {
+            try {
+              await copyToClipboard(accountIdentifier);
+              copyButton.textContent = 'Copied!';
+              setTimeout(() => {
+                copyButton.textContent = 'Copy';
+              }, 1500);
+            } catch (error) {
+              console.error('Copy failed:', error);
+              alert('Copy failed. Please copy the account ID manually.');
+            }
+          });
+          depositRow.appendChild(accountSpan);
+          depositRow.appendChild(copyButton);
+          depositInfo.appendChild(depositLabel);
+          depositInfo.appendChild(depositRow);
           details.appendChild(depositInfo);
 
           const note = document.createElement('p');

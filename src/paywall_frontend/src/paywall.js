@@ -1,7 +1,7 @@
 import { Actor, HttpAgent } from '@dfinity/agent';
 import { AuthClient } from '@dfinity/auth-client';
-import { LedgerCanister } from '@dfinity/ledger-icp';
 import { IDL } from '@dfinity/candid';
+import { LedgerCanister, principalToAccountIdentifier } from '@dfinity/ledger-icp';
 import { Principal } from '@dfinity/principal';
 
 const II_URL = 'https://identity.ic0.app/#authorize';
@@ -51,6 +51,8 @@ const buildOverlay = (price, onLogin, onPay) => {
     <button id="paywall-login" style="background:#4f46e5;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:16px;cursor:pointer;margin-bottom:12px;">Log in to check access</button>
     <button id="paywall-pay" style="display:none;background:#4f46e5;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:16px;cursor:pointer;">Pay now</button>
     <div id="paywall-details" style="display:none;margin-top:16px;text-align:left;font-size:14px;"></div>
+    <div id="paywall-loading" style="display:none;margin-top:16px;color:#9ca3af;">Loading...</div>
+    <div id="paywall-error" style="display:none;margin-top:16px;color:#ef4444;"></div>
   `;
   overlay.appendChild(panel);
   overlay.querySelector('#paywall-login').addEventListener('click', onLogin);
@@ -88,131 +90,154 @@ const run = async () => {
     const priceIcp = Number(config.price_e8s) / 100_000_000;
     if (!Number.isFinite(priceIcp)) return;
     const overlay = buildOverlay(priceIcp.toFixed(4), async () => {
-      const authClient = await AuthClient.create();
-      await new Promise((resolve, reject) => {
-        authClient.login({
-          identityProvider: II_URL,
-          onSuccess: resolve,
-          onError: reject,
-        });
-      });
-
-      const identity = authClient.getIdentity();
-      agent.replaceIdentity(identity);
-      const authedActor = Actor.createActor(idlFactory, {
-        agent,
-        canisterId: backendId,
-      });
-
-      const hasAccess = await authedActor.hasAccess(
-        identity.getPrincipal(),
-        paywallId,
-      );
-      if (hasAccess) {
-        overlay.remove();
-        return;
-      }
-
-      const userAccount = await authedActor.getUserAccount();
-      const ledger = LedgerCanister.create({
-        agent,
-        canisterId: ledgerId,
-      });
-      const userSubaccount = userAccount.subaccount?.[0];
-      let userBalanceE8s;
+      const loading = overlay.querySelector('#paywall-loading');
+      const errorMessage = overlay.querySelector('#paywall-error');
+      loading.style.display = 'block';
+      errorMessage.style.display = 'none';
       try {
-        userBalanceE8s = await ledger.icrc1_balance_of({
-          owner: userAccount.owner,
-          subaccount: userSubaccount,
+        const authClient = await AuthClient.create();
+        await new Promise((resolve, reject) => {
+          authClient.login({
+            identityProvider: II_URL,
+            onSuccess: resolve,
+            onError: reject,
+          });
         });
-      } catch (error) {
-        console.error('Error fetching user balance:', error);
-        alert('Failed to fetch your balance. Please try again.');
-        return;
-      }
-      const userBalanceIcp = Number(userBalanceE8s) / 100_000_000;
 
-      const details = overlay.querySelector('#paywall-details');
-      details.style.display = 'block';
-      details.innerHTML = '';
-
-      const balanceLine = document.createElement('p');
-      balanceLine.style.margin = '0 0 12px';
-      balanceLine.textContent = `Your paywall balance: ${userBalanceIcp.toFixed(4)} ICP`;
-      details.appendChild(balanceLine);
-
-      if (userBalanceE8s >= config.price_e8s) {
-        const payFromBalanceButton = document.createElement('button');
-        payFromBalanceButton.textContent = 'Pay from balance';
-        payFromBalanceButton.style.cssText =
-          'background:#16a34a;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:14px;cursor:pointer;margin-bottom:12px;';
-        payFromBalanceButton.addEventListener('click', async () => {
-          const verified = await authedActor.payFromBalance(paywallId);
-          if (verified) {
-            overlay.remove();
-          } else {
-            alert('Payment could not be completed from your balance.');
-          }
+        const identity = authClient.getIdentity();
+        agent.replaceIdentity(identity);
+        const authedActor = Actor.createActor(idlFactory, {
+          agent,
+          canisterId: backendId,
         });
-        details.appendChild(payFromBalanceButton);
-      } else {
-        const depositInfo = document.createElement('p');
-        depositInfo.style.margin = '0 0 12px';
-        depositInfo.textContent = `Deposit ICP to: owner ${userAccount.owner.toText()} subaccount ${bytesToHex(
-          userSubaccount,
-        ) || 'none'}.`;
-        details.appendChild(depositInfo);
-      }
 
-      const withdrawButton = document.createElement('button');
-      withdrawButton.textContent = 'Withdraw from balance';
-      withdrawButton.style.cssText =
-        'background:#0ea5e9;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:14px;cursor:pointer;';
-      withdrawButton.addEventListener('click', async () => {
-        const destination = prompt('Enter destination principal:');
-        const amountText = prompt('Enter amount in ICP:');
-        if (!destination || !amountText) return;
-        const amountIcp = Number.parseFloat(amountText);
-        if (Number.isNaN(amountIcp) || amountIcp <= 0) {
-          alert('Invalid amount.');
+        const hasAccess = await authedActor.hasAccess(
+          identity.getPrincipal(),
+          paywallId,
+        );
+        if (hasAccess) {
+          overlay.remove();
           return;
         }
-        const amountE8s = BigInt(Math.round(amountIcp * 100_000_000));
-        const to = { owner: Principal.fromText(destination), subaccount: [] };
-        const result = await authedActor.withdrawFromWallet(amountE8s, to);
-        if ('Err' in result) {
-          alert('Withdraw failed.');
-        } else {
-          alert('Withdraw initiated.');
+
+        const userAccount = await authedActor.getUserAccount();
+        const ledger = LedgerCanister.create({
+          agent,
+          canisterId: Principal.fromText(ledgerId),
+        });
+        const userSubaccount = userAccount.subaccount?.[0];
+        let userBalanceE8s = 0n;
+        try {
+          const accountIdentifier = principalToAccountIdentifier(
+            userAccount.owner,
+            userSubaccount,
+          );
+          userBalanceE8s = await ledger.accountBalance({
+            accountIdentifier,
+            certified: false,
+          });
+        } catch (error) {
+          console.error('Error fetching user balance:', error);
+          alert(
+            'Failed to fetch your balance. Assuming 0 ICP. Please try again or deposit manually.',
+          );
         }
-      });
-      details.appendChild(withdrawButton);
+        const userBalanceIcp = Number(userBalanceE8s) / 100_000_000;
 
-      overlay.querySelector('#paywall-login').style.display = 'none';
-      overlay.querySelector('#paywall-pay').style.display = 'inline-block';
-    }, async () => {
-      const authedActor = Actor.createActor(idlFactory, {
-        agent,
-        canisterId: backendId,
-      });
+        const details = overlay.querySelector('#paywall-details');
+        details.style.display = 'block';
+        details.innerHTML = '';
 
-      const paymentAccountResponse = await authedActor.getPaymentAccount(
-        paywallId,
-      );
-      const paymentAccount = paymentAccountResponse?.[0];
-      if (!paymentAccount) {
-        alert('Payment account not found.');
-        return;
+        const balanceLine = document.createElement('p');
+        balanceLine.style.margin = '0 0 12px';
+        balanceLine.textContent = `Your paywall balance: ${userBalanceIcp.toFixed(4)} ICP`;
+        details.appendChild(balanceLine);
+
+        if (userBalanceE8s >= config.price_e8s) {
+          const payFromBalanceButton = document.createElement('button');
+          payFromBalanceButton.textContent = 'Pay from balance';
+          payFromBalanceButton.style.cssText =
+            'background:#16a34a;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:14px;cursor:pointer;margin-bottom:12px;';
+          payFromBalanceButton.addEventListener('click', async () => {
+            const verified = await authedActor.payFromBalance(paywallId);
+            if (verified) {
+              overlay.remove();
+            } else {
+              alert('Payment could not be completed from your balance.');
+            }
+          });
+          details.appendChild(payFromBalanceButton);
+        } else {
+          const depositInfo = document.createElement('p');
+          depositInfo.style.margin = '0 0 12px';
+          depositInfo.textContent = `Deposit ICP to: owner ${userAccount.owner.toText()} subaccount ${bytesToHex(
+            userSubaccount,
+          ) || 'none'}.`;
+          details.appendChild(depositInfo);
+        }
+
+        const withdrawButton = document.createElement('button');
+        withdrawButton.textContent = 'Withdraw from balance';
+        withdrawButton.style.cssText =
+          'background:#0ea5e9;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:14px;cursor:pointer;';
+        withdrawButton.addEventListener('click', async () => {
+          const destination = prompt('Enter destination principal:');
+          const amountText = prompt('Enter amount in ICP:');
+          if (!destination || !amountText) return;
+          const amountIcp = Number.parseFloat(amountText);
+          if (Number.isNaN(amountIcp) || amountIcp <= 0) {
+            alert('Invalid amount.');
+            return;
+          }
+          const amountE8s = BigInt(Math.round(amountIcp * 100_000_000));
+          const to = {
+            owner: Principal.fromText(destination),
+            subaccount: undefined,
+          };
+          const result = await authedActor.withdrawFromWallet(amountE8s, to);
+          if ('Err' in result) {
+            alert('Withdraw failed.');
+          } else {
+            alert('Withdraw initiated.');
+          }
+        });
+        details.appendChild(withdrawButton);
+
+        overlay.querySelector('#paywall-login').style.display = 'none';
+        overlay.querySelector('#paywall-pay').style.display = 'inline-block';
+      } catch (error) {
+        console.error('Error during login/access check:', error);
+        errorMessage.textContent = 'An error occurred. Please try again.';
+        errorMessage.style.display = 'block';
+      } finally {
+        loading.style.display = 'none';
       }
-
-      const ledger = LedgerCanister.create({
-        agent,
-        canisterId: ledgerId,
-      });
-
-      const subaccount = paymentAccount.subaccount?.[0];
+    }, async () => {
+      const loading = overlay.querySelector('#paywall-loading');
+      const errorMessage = overlay.querySelector('#paywall-error');
+      loading.style.display = 'block';
+      errorMessage.style.display = 'none';
       try {
-        await ledger.icrc1_transfer({
+        const authedActor = Actor.createActor(idlFactory, {
+          agent,
+          canisterId: backendId,
+        });
+
+        const paymentAccountResponse = await authedActor.getPaymentAccount(
+          paywallId,
+        );
+        const paymentAccount = paymentAccountResponse?.[0];
+        if (!paymentAccount) {
+          throw new Error('Payment account not found.');
+        }
+
+        const ledger = LedgerCanister.create({
+          agent,
+          canisterId: Principal.fromText(ledgerId),
+        });
+
+        const subaccount = paymentAccount.subaccount?.[0];
+        await ledger.icrc1Transfer({
           to: {
             owner: paymentAccount.owner,
             subaccount,
@@ -220,24 +245,19 @@ const run = async () => {
           amount: config.price_e8s,
           fee: 10_000n,
         });
-      } catch (error) {
-        console.error('Error during transfer:', error);
-        alert('Payment transfer failed. Please try again.');
-        return;
-      }
 
-      let verified = false;
-      try {
-        verified = await authedActor.verifyPayment(paywallId);
+        const verified = await authedActor.verifyPayment(paywallId);
+        if (verified) {
+          overlay.remove();
+        } else {
+          alert('Payment not detected yet. Please try again shortly.');
+        }
       } catch (error) {
-        console.error('Error verifying payment:', error);
-        alert('Payment verification failed. Please try again.');
-        return;
-      }
-      if (verified) {
-        overlay.remove();
-      } else {
-        alert('Payment not detected yet. Please try again shortly.');
+        console.error('Error during payment:', error);
+        errorMessage.textContent = 'Payment failed. Please try again.';
+        errorMessage.style.display = 'block';
+      } finally {
+        loading.style.display = 'none';
       }
     });
 

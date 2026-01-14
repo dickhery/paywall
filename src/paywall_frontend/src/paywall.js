@@ -236,8 +236,38 @@ const run = async () => {
           'background:#0ea5e9;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:14px;cursor:pointer;';
         withdrawButton.addEventListener('click', async () => {
           const destination = prompt('Enter destination principal:');
+          if (!destination) return;
+
+          const subaccountText = prompt(
+            'Enter subaccount as hex string (optional, leave blank for default):',
+          );
+          let subaccount = null;
+          if (subaccountText) {
+            if (subaccountText.length % 2 !== 0 || subaccountText.length > 64) {
+              alert(
+                'Invalid subaccount hex: Must be even length, max 32 bytes (64 hex chars).',
+              );
+              return;
+            }
+            subaccount = [];
+            for (let i = 0; i < subaccountText.length; i += 2) {
+              const byte = Number.parseInt(
+                subaccountText.slice(i, i + 2),
+                16,
+              );
+              if (Number.isNaN(byte)) {
+                alert(
+                  'Invalid subaccount hex: Contains non-hex characters.',
+                );
+                return;
+              }
+              subaccount.push(byte);
+            }
+          }
+
           const amountText = prompt('Enter amount in ICP:');
-          if (!destination || !amountText) return;
+          if (!amountText) return;
+
           const amountIcp = Number.parseFloat(amountText);
           if (Number.isNaN(amountIcp) || amountIcp <= 0) {
             alert('Invalid amount.');
@@ -246,13 +276,29 @@ const run = async () => {
           const amountE8s = BigInt(Math.round(amountIcp * 100_000_000));
           const to = {
             owner: Principal.fromText(destination),
-            subaccount: null,
+            subaccount,
           };
-          const result = await authedActor.withdrawFromWallet(amountE8s, to);
-          if ('Err' in result) {
-            alert('Withdraw failed.');
-          } else {
-            alert('Withdraw initiated.');
+
+          withdrawButton.disabled = true;
+          withdrawButton.textContent = 'Withdrawing...';
+          try {
+            const result = await authedActor.withdrawFromWallet(
+              amountE8s,
+              to,
+            );
+            if ('Ok' in result) {
+              alert(`Withdraw successful! Block index: ${result.Ok}`);
+            } else {
+              alert(`Withdraw failed: ${JSON.stringify(result.Err)}`);
+            }
+          } catch (error) {
+            console.error('Withdrawal error:', error);
+            alert(
+              `An error occurred during withdrawal: ${error?.message ?? error}`,
+            );
+          } finally {
+            withdrawButton.disabled = false;
+            withdrawButton.textContent = 'Withdraw from balance';
           }
         });
         details.appendChild(withdrawButton);

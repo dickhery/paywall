@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { AuthClient } from '@dfinity/auth-client';
+import { principalToAccountIdentifier } from '@dfinity/ledger-icp';
 import { Principal } from '@dfinity/principal';
 import { createActor, paywall_backend } from 'declarations/paywall_backend';
 
@@ -13,13 +14,6 @@ const toE8s = (icpValue) => {
     return 0n;
   }
   return BigInt(Math.round(parsed * 100_000_000));
-};
-
-const blobToHex = (blob) => {
-  if (!blob) return '';
-  return Array.from(blob)
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('');
 };
 
 function App() {
@@ -276,14 +270,18 @@ function App() {
         {paymentAccount && (
           <div className="result">
             <p>
-              Transfer to owner:{' '}
-              <span className="mono">{paymentAccount.owner.toText()}</span>
-            </p>
-            <p>
-              Subaccount:{' '}
+              Transfer to account identifier:{' '}
               <span className="mono">
-                {blobToHex(paymentAccount.subaccount?.[0]) || 'none'}
+                {principalToAccountIdentifier(
+                  paymentAccount.owner,
+                  paymentAccount.subaccount?.[0],
+                )}
               </span>
+            </p>
+            <p className="hint">
+              Copy this Account Identifier into your wallet to send ICP. Include
+              the ledger fee (0.0001 ICP). After transfer, click &quot;Verify
+              payment&quot;.
             </p>
           </div>
         )}

@@ -1,11 +1,16 @@
 import { Actor, HttpAgent } from '@dfinity/agent';
 import { AuthClient } from '@dfinity/auth-client';
 import { IDL } from '@dfinity/candid';
+import { Buffer } from 'buffer';
 import { LedgerCanister, principalToAccountIdentifier } from '@dfinity/ledger-icp';
 import { Principal } from '@dfinity/principal';
 
 const II_URL = 'https://identity.ic0.app/#authorize';
 const DEFAULT_LEDGER_ID = 'ryjl3-tyaaa-aaaaa-aaaba-cai';
+
+if (!globalThis.Buffer) {
+  globalThis.Buffer = Buffer;
+}
 
 const idlFactory = ({ IDL }) => {
   const PaywallConfig = IDL.Record({
@@ -28,13 +33,6 @@ const idlFactory = ({ IDL }) => {
     verifyPayment: IDL.Func([IDL.Text], [IDL.Bool], []),
     withdrawFromWallet: IDL.Func([IDL.Nat, Account], [IDL.Variant({ Ok: IDL.Nat, Err: IDL.Variant({ BadFee: IDL.Record({ expected_fee: IDL.Nat }), BadBurn: IDL.Record({ min_burn_amount: IDL.Nat }), Duplicate: IDL.Record({ duplicate_of: IDL.Nat }), InsufficientFunds: IDL.Record({ balance: IDL.Nat }), CreatedInFuture: IDL.Record({ ledger_time: IDL.Nat64 }), TooOld: IDL.Null, TemporarilyUnavailable: IDL.Null, GenericError: IDL.Record({ message: IDL.Text, error_code: IDL.Nat }) }) })], []),
   });
-};
-
-const bytesToHex = (bytes) => {
-  if (!bytes) return '';
-  return Array.from(bytes)
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('');
 };
 
 const buildOverlay = (price, onLogin, onPay) => {
@@ -168,12 +166,21 @@ const run = async () => {
           });
           details.appendChild(payFromBalanceButton);
         } else {
+          const accountIdentifier = principalToAccountIdentifier(
+            userAccount.owner,
+            userSubaccount,
+          );
           const depositInfo = document.createElement('p');
           depositInfo.style.margin = '0 0 12px';
-          depositInfo.textContent = `Deposit ICP to: owner ${userAccount.owner.toText()} subaccount ${bytesToHex(
-            userSubaccount,
-          ) || 'none'}.`;
+          depositInfo.textContent = `Deposit ICP to account: ${accountIdentifier}.`;
           details.appendChild(depositInfo);
+
+          const note = document.createElement('p');
+          note.style.margin = '0 0 12px';
+          note.style.fontStyle = 'italic';
+          note.textContent =
+            'Copy this Account Identifier into your wallet (e.g., NNS dapp) to send ICP. After transfer, refresh or re-login to see updated balance.';
+          details.appendChild(note);
         }
 
         const withdrawButton = document.createElement('button');
@@ -243,7 +250,7 @@ const run = async () => {
             subaccount,
           },
           amount: config.price_e8s,
-          fee: 10_000n,
+          fee: 10000,
         });
 
         const verified = await authedActor.verifyPayment(paywallId);

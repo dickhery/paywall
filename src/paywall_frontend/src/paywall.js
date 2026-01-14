@@ -1,11 +1,43 @@
 import { Actor, HttpAgent } from '@dfinity/agent';
 import { AuthClient } from '@dfinity/auth-client';
-import { LedgerCanister } from '@dfinity/ledger-icp';
 import { IDL } from '@dfinity/candid';
 import { Principal } from '@dfinity/principal';
 
 const II_URL = 'https://identity.ic0.app/#authorize';
 const DEFAULT_LEDGER_ID = 'ryjl3-tyaaa-aaaaa-aaaba-cai';
+
+const icrc1IdlFactory = ({ IDL }) => {
+  const Account = IDL.Record({
+    owner: IDL.Principal,
+    subaccount: IDL.Opt(IDL.Vec(IDL.Nat8)),
+  });
+  const TransferArgs = IDL.Record({
+    to: Account,
+    fee: IDL.Opt(IDL.Nat),
+    memo: IDL.Opt(IDL.Vec(IDL.Nat8)),
+    from_subaccount: IDL.Opt(IDL.Vec(IDL.Nat8)),
+    created_at_time: IDL.Opt(IDL.Nat64),
+    amount: IDL.Nat,
+  });
+  const TransferError = IDL.Variant({
+    GenericError: IDL.Record({ message: IDL.Text, error_code: IDL.Nat }),
+    TemporarilyUnavailable: IDL.Null,
+    BadBurn: IDL.Record({ min_burn_amount: IDL.Nat }),
+    Duplicate: IDL.Record({ duplicate_of: IDL.Nat }),
+    BadFee: IDL.Record({ expected_fee: IDL.Nat }),
+    CreatedInFuture: IDL.Record({ ledger_time: IDL.Nat64 }),
+    TooOld: IDL.Null,
+    InsufficientFunds: IDL.Record({ balance: IDL.Nat }),
+  });
+  return IDL.Service({
+    icrc1_balance_of: IDL.Func([Account], [IDL.Nat], ['query']),
+    icrc1_transfer: IDL.Func(
+      [TransferArgs],
+      [IDL.Variant({ Ok: IDL.Nat, Err: TransferError })],
+      [],
+    ),
+  });
+};
 
 const idlFactory = ({ IDL }) => {
   const PaywallConfig = IDL.Record({
@@ -114,21 +146,22 @@ const run = async () => {
       }
 
       const userAccount = await authedActor.getUserAccount();
-      const ledger = LedgerCanister.create({
+      const ledgerActor = Actor.createActor(icrc1IdlFactory, {
         agent,
         canisterId: ledgerId,
       });
       const userSubaccount = userAccount.subaccount?.[0];
-      let userBalanceE8s;
+      let userBalanceE8s = 0n;
       try {
-        userBalanceE8s = await ledger.icrc1_balance_of({
+        userBalanceE8s = await ledgerActor.icrc1_balance_of({
           owner: userAccount.owner,
-          subaccount: userSubaccount,
+          subaccount: userSubaccount ? [userSubaccount] : null,
         });
       } catch (error) {
         console.error('Error fetching user balance:', error);
-        alert('Failed to fetch your balance. Please try again.');
-        return;
+        alert(
+          'Failed to fetch your balance. Assuming 0 ICP. Please try again or deposit manually.',
+        );
       }
       const userBalanceIcp = Number(userBalanceE8s) / 100_000_000;
 
@@ -205,20 +238,23 @@ const run = async () => {
         return;
       }
 
-      const ledger = LedgerCanister.create({
+      const ledgerActor = Actor.createActor(icrc1IdlFactory, {
         agent,
         canisterId: ledgerId,
       });
 
       const subaccount = paymentAccount.subaccount?.[0];
       try {
-        await ledger.icrc1_transfer({
+        await ledgerActor.icrc1_transfer({
           to: {
             owner: paymentAccount.owner,
-            subaccount,
+            subaccount: subaccount ? [subaccount] : null,
           },
           amount: config.price_e8s,
           fee: 10_000n,
+          memo: null,
+          from_subaccount: null,
+          created_at_time: null,
         });
       } catch (error) {
         console.error('Error during transfer:', error);

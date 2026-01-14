@@ -311,7 +311,7 @@ function App() {
                   <span className="mono">
                     {principalToAccountIdentifier(
                       paymentAccount.owner,
-                      paymentAccount.subaccount?.[0],
+                      paymentAccount.subaccount ?? undefined,
                     )}
                   </span>
                 </p>

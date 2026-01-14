@@ -139,7 +139,7 @@ const run = async () => {
           agent,
           canisterId: Principal.fromText(ledgerId),
         });
-        const userSubaccount = userAccount.subaccount?.[0];
+        const userSubaccount = userAccount.subaccount ?? undefined;
         let userBalanceE8s = 0n;
         try {
           const accountIdentifier = principalToAccountIdentifier(
@@ -236,8 +236,38 @@ const run = async () => {
           'background:#0ea5e9;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:14px;cursor:pointer;';
         withdrawButton.addEventListener('click', async () => {
           const destination = prompt('Enter destination principal:');
+          if (!destination) return;
+
+          const subaccountText = prompt(
+            'Enter subaccount as hex string (exactly 64 characters, optional, leave blank for default):',
+          );
+          if (subaccountText === null) return;
+          const trimmedText = subaccountText.trim();
+          let subaccountBytes = null;
+          if (trimmedText !== '') {
+            if (trimmedText.length !== 64) {
+              alert('Invalid subaccount hex: Must be exactly 64 characters.');
+              return;
+            }
+            subaccountBytes = new Uint8Array(32);
+            for (let i = 0; i < 64; i += 2) {
+              const byte = Number.parseInt(
+                trimmedText.slice(i, i + 2),
+                16,
+              );
+              if (Number.isNaN(byte)) {
+                alert(
+                  'Invalid subaccount hex: Contains non-hex characters.',
+                );
+                return;
+              }
+              subaccountBytes[i / 2] = byte;
+            }
+          }
+
           const amountText = prompt('Enter amount in ICP:');
-          if (!destination || !amountText) return;
+          if (!amountText) return;
+
           const amountIcp = Number.parseFloat(amountText);
           if (Number.isNaN(amountIcp) || amountIcp <= 0) {
             alert('Invalid amount.');
@@ -246,13 +276,29 @@ const run = async () => {
           const amountE8s = BigInt(Math.round(amountIcp * 100_000_000));
           const to = {
             owner: Principal.fromText(destination),
-            subaccount: undefined,
+            subaccount: subaccountBytes ? [subaccountBytes] : [],
           };
-          const result = await authedActor.withdrawFromWallet(amountE8s, to);
-          if ('Err' in result) {
-            alert('Withdraw failed.');
-          } else {
-            alert('Withdraw initiated.');
+
+          withdrawButton.disabled = true;
+          withdrawButton.textContent = 'Withdrawing...';
+          try {
+            const result = await authedActor.withdrawFromWallet(
+              amountE8s,
+              to,
+            );
+            if ('Ok' in result) {
+              alert(`Withdraw successful! Block index: ${result.Ok}`);
+            } else {
+              alert(`Withdraw failed: ${JSON.stringify(result.Err)}`);
+            }
+          } catch (error) {
+            console.error('Withdrawal error:', error);
+            alert(
+              `An error occurred during withdrawal: ${error?.message ?? error}`,
+            );
+          } finally {
+            withdrawButton.disabled = false;
+            withdrawButton.textContent = 'Withdraw from balance';
           }
         });
         details.appendChild(withdrawButton);
@@ -290,7 +336,7 @@ const run = async () => {
           canisterId: Principal.fromText(ledgerId),
         });
 
-        const subaccount = paymentAccount.subaccount?.[0];
+        const subaccount = paymentAccount.subaccount ?? undefined;
         await ledger.icrc1Transfer({
           to: {
             owner: paymentAccount.owner,

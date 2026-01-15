@@ -267,7 +267,7 @@ const run = async () => {
           );
           if (subaccountText === null) return;
           const trimmedText = subaccountText.trim();
-          let subaccountBytes = new Uint8Array(32);
+          let subaccountBytes = null;
           if (trimmedText !== '') {
             if (
               trimmedText.length !== 64 ||
@@ -278,10 +278,10 @@ const run = async () => {
               );
               return;
             }
+            subaccountBytes = [];
             for (let i = 0; i < 64; i += 2) {
-              subaccountBytes[i / 2] = Number.parseInt(
-                trimmedText.slice(i, i + 2),
-                16,
+              subaccountBytes.push(
+                Number.parseInt(trimmedText.slice(i, i + 2), 16),
               );
             }
           }
@@ -297,7 +297,7 @@ const run = async () => {
           const amountE8s = BigInt(Math.round(amountIcp * 100_000_000));
           const to = {
             owner: Principal.fromText(destination),
-            subaccount: subaccountBytes,
+            subaccount: subaccountBytes ? [subaccountBytes] : [],
           };
 
           withdrawButton.disabled = true;

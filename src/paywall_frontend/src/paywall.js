@@ -12,6 +12,13 @@ if (!globalThis.Buffer) {
   globalThis.Buffer = Buffer;
 }
 
+const stringifyWithBigInt = (value) =>
+  JSON.stringify(
+    value,
+    (key, currentValue) =>
+      typeof currentValue === 'bigint' ? currentValue.toString() : currentValue,
+  );
+
 const idlFactory = ({ IDL }) => {
   const PaywallConfig = IDL.Record({
     price_e8s: IDL.Nat,
@@ -276,7 +283,7 @@ const run = async () => {
           const amountE8s = BigInt(Math.round(amountIcp * 100_000_000));
           const to = {
             owner: Principal.fromText(destination),
-            subaccount: subaccountBytes ? [subaccountBytes] : [],
+            subaccount: subaccountBytes,
           };
 
           withdrawButton.disabled = true;
@@ -289,12 +296,12 @@ const run = async () => {
             if ('Ok' in result) {
               alert(`Withdraw successful! Block index: ${result.Ok}`);
             } else {
-              alert(`Withdraw failed: ${JSON.stringify(result.Err)}`);
+              alert(`Withdraw failed: ${stringifyWithBigInt(result.Err)}`);
             }
           } catch (error) {
             console.error('Withdrawal error:', error);
             alert(
-              `An error occurred during withdrawal: ${error?.message ?? error}`,
+              `An error occurred during withdrawal: ${error?.message ?? stringifyWithBigInt(error)}`,
             );
           } finally {
             withdrawButton.disabled = false;

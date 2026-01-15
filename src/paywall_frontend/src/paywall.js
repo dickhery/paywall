@@ -23,8 +23,17 @@ const stringifyWithBigInt = (value) => {
           : currentValue,
     );
   } catch (error) {
-    return 'Error stringifying object';
+    return String(value);
   }
+};
+
+const formatErrorMessage = (error, fallback) => {
+  if (!error) return fallback;
+  if (typeof error === 'string') return error;
+  if (typeof error?.message === 'string' && error.message.trim()) {
+    return error.message;
+  }
+  return stringifyWithBigInt(error);
 };
 
 const idlFactory = ({ IDL }) => {
@@ -303,33 +312,22 @@ const run = async () => {
             if ('Ok' in result) {
               message = `Withdraw successful! Block index: ${result.Ok}`;
             } else {
-              let errorDetails = '';
-              try {
-                errorDetails = stringifyWithBigInt(result.Err);
-              } catch (error) {
-                errorDetails = 'Unknown transfer error';
-              }
-              message = `Withdraw failed: ${errorDetails}`;
+              message = `Withdraw failed: ${formatErrorMessage(
+                result.Err,
+                'Unknown transfer error',
+              )}`;
             }
             alert(message);
           } catch (error) {
-            let errorMessage = error?.message || '';
-            if (!errorMessage) {
-              try {
-                errorMessage = stringifyWithBigInt(error);
-              } catch (stringifyError) {
-                errorMessage = 'Unknown error - check console for details';
-              }
-            }
+            const errorMessage = formatErrorMessage(
+              error,
+              'Unknown error - check console for details',
+            );
             alert(`An error occurred during withdrawal: ${errorMessage}`);
-            try {
-              console.error(
-                'Withdrawal error:',
-                stringifyWithBigInt(error),
-              );
-            } catch (stringifyError) {
-              console.error('Withdrawal error:', error);
-            }
+            console.error(
+              'Withdrawal error:',
+              formatErrorMessage(error, 'Unknown error'),
+            );
           } finally {
             withdrawButton.disabled = false;
             withdrawButton.textContent = 'Withdraw from balance';

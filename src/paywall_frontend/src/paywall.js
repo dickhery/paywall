@@ -36,6 +36,14 @@ const formatErrorMessage = (error, fallback) => {
   return stringifyWithBigInt(error);
 };
 
+const unwrapSubaccount = (subaccount) => {
+  if (!Array.isArray(subaccount) || subaccount.length === 0) {
+    return undefined;
+  }
+  const bytes = subaccount[0];
+  return bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes);
+};
+
 const idlFactory = ({ IDL }) => {
   const PaywallConfig = IDL.Record({
     price_e8s: IDL.Nat,
@@ -163,7 +171,7 @@ const run = async () => {
           agent,
           canisterId: Principal.fromText(ledgerId),
         });
-        const userSubaccount = userAccount.subaccount ?? undefined;
+        const userSubaccount = unwrapSubaccount(userAccount.subaccount);
         let userBalanceE8s = 0n;
         try {
           const accountIdentifier = principalToAccountIdentifier(
@@ -367,7 +375,7 @@ const run = async () => {
           canisterId: Principal.fromText(ledgerId),
         });
 
-        const subaccount = paymentAccount.subaccount ?? undefined;
+        const subaccount = unwrapSubaccount(paymentAccount.subaccount);
         await ledger.icrc1Transfer({
           to: {
             owner: paymentAccount.owner,

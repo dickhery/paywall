@@ -12,12 +12,20 @@ if (!globalThis.Buffer) {
   globalThis.Buffer = Buffer;
 }
 
-const stringifyWithBigInt = (value) =>
-  JSON.stringify(
-    value,
-    (key, currentValue) =>
-      typeof currentValue === 'bigint' ? currentValue.toString() : currentValue,
-  );
+const stringifyWithBigInt = (value) => {
+  if (value === null || value === undefined) return 'null';
+  try {
+    return JSON.stringify(
+      value,
+      (key, currentValue) =>
+        typeof currentValue === 'bigint'
+          ? currentValue.toString()
+          : currentValue,
+    );
+  } catch (error) {
+    return 'Error stringifying object';
+  }
+};
 
 const idlFactory = ({ IDL }) => {
   const PaywallConfig = IDL.Record({
@@ -252,23 +260,21 @@ const run = async () => {
           const trimmedText = subaccountText.trim();
           let subaccountBytes = null;
           if (trimmedText !== '') {
-            if (trimmedText.length !== 64) {
-              alert('Invalid subaccount hex: Must be exactly 64 characters.');
+            if (
+              trimmedText.length !== 64 ||
+              !/^[0-9a-fA-F]{64}$/.test(trimmedText)
+            ) {
+              alert(
+                'Invalid subaccount hex: Must be exactly 64 hexadecimal characters (0-9, a-f, A-F).',
+              );
               return;
             }
             subaccountBytes = new Uint8Array(32);
             for (let i = 0; i < 64; i += 2) {
-              const byte = Number.parseInt(
+              subaccountBytes[i / 2] = Number.parseInt(
                 trimmedText.slice(i, i + 2),
                 16,
               );
-              if (Number.isNaN(byte)) {
-                alert(
-                  'Invalid subaccount hex: Contains non-hex characters.',
-                );
-                return;
-              }
-              subaccountBytes[i / 2] = byte;
             }
           }
 
@@ -293,16 +299,37 @@ const run = async () => {
               amountE8s,
               to,
             );
+            let message = '';
             if ('Ok' in result) {
-              alert(`Withdraw successful! Block index: ${result.Ok}`);
+              message = `Withdraw successful! Block index: ${result.Ok}`;
             } else {
-              alert(`Withdraw failed: ${stringifyWithBigInt(result.Err)}`);
+              let errorDetails = '';
+              try {
+                errorDetails = stringifyWithBigInt(result.Err);
+              } catch (error) {
+                errorDetails = 'Unknown transfer error';
+              }
+              message = `Withdraw failed: ${errorDetails}`;
             }
+            alert(message);
           } catch (error) {
-            console.error('Withdrawal error:', error);
-            alert(
-              `An error occurred during withdrawal: ${error?.message ?? stringifyWithBigInt(error)}`,
-            );
+            let errorMessage = error?.message || '';
+            if (!errorMessage) {
+              try {
+                errorMessage = stringifyWithBigInt(error);
+              } catch (stringifyError) {
+                errorMessage = 'Unknown error - check console for details';
+              }
+            }
+            alert(`An error occurred during withdrawal: ${errorMessage}`);
+            try {
+              console.error(
+                'Withdrawal error:',
+                stringifyWithBigInt(error),
+              );
+            } catch (stringifyError) {
+              console.error('Withdrawal error:', error);
+            }
           } finally {
             withdrawButton.disabled = false;
             withdrawButton.textContent = 'Withdraw from balance';

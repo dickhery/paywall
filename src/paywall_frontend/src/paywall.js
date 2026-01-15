@@ -267,7 +267,7 @@ const run = async () => {
           );
           if (subaccountText === null) return;
           const trimmedText = subaccountText.trim();
-          let subaccountBytes = null;
+          let subaccountBytes = new Uint8Array(32);
           if (trimmedText !== '') {
             if (
               trimmedText.length !== 64 ||
@@ -278,7 +278,6 @@ const run = async () => {
               );
               return;
             }
-            subaccountBytes = new Uint8Array(32);
             for (let i = 0; i < 64; i += 2) {
               subaccountBytes[i / 2] = Number.parseInt(
                 trimmedText.slice(i, i + 2),

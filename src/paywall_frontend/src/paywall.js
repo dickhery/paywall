@@ -67,7 +67,7 @@ const idlFactory = ({ IDL }) => {
   });
 };
 
-const buildOverlay = (price, onLogin, onPay) => {
+const buildOverlay = (price, onLogin) => {
   const overlay = document.createElement('div');
   overlay.style.cssText =
     'position:fixed;inset:0;background:rgba(6,9,20,0.88);color:#fff;z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;';
@@ -79,14 +79,12 @@ const buildOverlay = (price, onLogin, onPay) => {
     <h2 style="margin:0 0 12px;font-size:24px;">Payment required</h2>
     <p style="margin:0 0 16px;font-size:16px;">Pay ${price} ICP to continue.</p>
     <button id="paywall-login" style="background:#4f46e5;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:16px;cursor:pointer;margin-bottom:12px;">Log in to check access</button>
-    <button id="paywall-pay" style="display:none;background:#4f46e5;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:16px;cursor:pointer;">Pay now</button>
     <div id="paywall-details" style="display:none;margin-top:16px;text-align:left;font-size:14px;"></div>
     <div id="paywall-loading" style="display:none;margin-top:16px;color:#9ca3af;">Loading...</div>
     <div id="paywall-error" style="display:none;margin-top:16px;color:#ef4444;"></div>
   `;
   overlay.appendChild(panel);
   overlay.querySelector('#paywall-login').addEventListener('click', onLogin);
-  overlay.querySelector('#paywall-pay').addEventListener('click', onPay);
   return overlay;
 };
 
@@ -343,57 +341,9 @@ const run = async () => {
         details.appendChild(withdrawButton);
 
         overlay.querySelector('#paywall-login').style.display = 'none';
-        overlay.querySelector('#paywall-pay').style.display = 'inline-block';
       } catch (error) {
         console.error('Error during login/access check:', error);
         errorMessage.textContent = 'An error occurred. Please try again.';
-        errorMessage.style.display = 'block';
-      } finally {
-        loading.style.display = 'none';
-      }
-    }, async () => {
-      const loading = overlay.querySelector('#paywall-loading');
-      const errorMessage = overlay.querySelector('#paywall-error');
-      loading.style.display = 'block';
-      errorMessage.style.display = 'none';
-      try {
-        const authedActor = Actor.createActor(idlFactory, {
-          agent,
-          canisterId: backendId,
-        });
-
-        const paymentAccountResponse = await authedActor.getPaymentAccount(
-          paywallId,
-        );
-        const paymentAccount = paymentAccountResponse?.[0];
-        if (!paymentAccount) {
-          throw new Error('Payment account not found.');
-        }
-
-        const ledger = LedgerCanister.create({
-          agent,
-          canisterId: Principal.fromText(ledgerId),
-        });
-
-        const subaccount = unwrapSubaccount(paymentAccount.subaccount);
-        await ledger.icrc1Transfer({
-          to: {
-            owner: paymentAccount.owner,
-            subaccount,
-          },
-          amount: config.price_e8s,
-          fee: 10000,
-        });
-
-        const verified = await authedActor.verifyPayment(paywallId);
-        if (verified) {
-          overlay.remove();
-        } else {
-          alert('Payment not detected yet. Please try again shortly.');
-        }
-      } catch (error) {
-        console.error('Error during payment:', error);
-        errorMessage.textContent = 'Payment failed. Please try again.';
         errorMessage.style.display = 'block';
       } finally {
         loading.style.display = 'none';

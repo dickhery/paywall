@@ -54,6 +54,13 @@ persistent actor Paywall {
     session_duration_ns : Nat;
     convertToCycles : Bool;
   };
+  type PaywallUpdate = {
+    price_e8s : ?Nat;
+    destination : ?Principal;
+    target_canister : ?Principal;
+    session_duration_ns : ?Nat;
+    convertToCycles : ?Bool;
+  };
 
   type NotifyMintCyclesArgs = {
     block_index : Nat64;
@@ -78,6 +85,7 @@ persistent actor Paywall {
 
   stable var paywallConfigEntries : [(Text, PaywallConfig)] = [];
   stable var paidStatusEntries : [(Principal, [(Text, Int)])] = [];
+  stable var ownedPaywallsEntries : [(Principal, [Text])] = [];
   stable var nextPaywallId : Nat = 0;
   stable var salt : [Nat8] = [];
 
@@ -90,6 +98,7 @@ persistent actor Paywall {
     Principal.equal,
     Principal.hash,
   );
+  transient var ownedPaywalls = HashMap.HashMap<Principal, [Text]>(0, Principal.equal, Principal.hash);
 
   system func preupgrade() {
     paywallConfigEntries := Iter.toArray(paywallConfigs.entries());
@@ -98,6 +107,14 @@ persistent actor Paywall {
         paidStatuses.entries(),
         func(entry : (Principal, HashMap.HashMap<Text, Int>)) : (Principal, [(Text, Int)]) {
           (entry.0, Iter.toArray(entry.1.entries()));
+        },
+      ),
+    );
+    ownedPaywallsEntries := Iter.toArray(
+      Iter.map<(Principal, [Text]), (Principal, [Text])>(
+        ownedPaywalls.entries(),
+        func(entry : (Principal, [Text])) : (Principal, [Text]) {
+          entry;
         },
       ),
     );
@@ -121,6 +138,15 @@ persistent actor Paywall {
         userMap.put(paywallId, expiry);
       };
       paidStatuses.put(owner, userMap);
+    };
+
+    ownedPaywalls := HashMap.HashMap<Principal, [Text]>(
+      ownedPaywallsEntries.size(),
+      Principal.equal,
+      Principal.hash,
+    );
+    for ((owner, ids) in ownedPaywallsEntries.vals()) {
+      ownedPaywalls.put(owner, ids);
     };
   };
 
@@ -217,6 +243,12 @@ persistent actor Paywall {
     let id = "pw-" # Nat.toText(nextPaywallId);
     nextPaywallId += 1;
     paywallConfigs.put(id, config);
+    let owner = msg.caller;
+    let currentIds = switch (ownedPaywalls.get(owner)) {
+      case null [];
+      case (?ids) ids;
+    };
+    ownedPaywalls.put(owner, Array.append(currentIds, [id]));
     id;
   };
 
@@ -367,5 +399,48 @@ persistent actor Paywall {
         };
       };
     };
+  };
+
+  public query func getOwnedPaywalls(owner : Principal) : async [Text] {
+    switch (ownedPaywalls.get(owner)) {
+      case null [];
+      case (?ids) ids;
+    };
+  };
+
+  public shared(msg) func updatePaywall(id : Text, updates : PaywallUpdate) : async () {
+    let ?config = paywallConfigs.get(id) else return;
+    let ownerIds = switch (ownedPaywalls.get(msg.caller)) {
+      case null return;
+      case (?ids) ids;
+    };
+    let isOwner = Array.find<Text>(ownerIds, func(value : Text) : Bool { value == id }) != null;
+    if (not isOwner) {
+      return;
+    };
+
+    let newConfig = {
+      price_e8s = switch (updates.price_e8s) {
+        case null config.price_e8s;
+        case (?value) value;
+      };
+      destination = switch (updates.destination) {
+        case null config.destination;
+        case (?value) value;
+      };
+      target_canister = switch (updates.target_canister) {
+        case null config.target_canister;
+        case (?value) value;
+      };
+      session_duration_ns = switch (updates.session_duration_ns) {
+        case null config.session_duration_ns;
+        case (?value) value;
+      };
+      convertToCycles = switch (updates.convertToCycles) {
+        case null config.convertToCycles;
+        case (?value) value;
+      };
+    };
+    paywallConfigs.put(id, newConfig);
   };
 }

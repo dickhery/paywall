@@ -1,6 +1,5 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AuthClient } from '@dfinity/auth-client';
-import { principalToAccountIdentifier } from '@dfinity/ledger-icp';
 import { Principal } from '@dfinity/principal';
 import { createActor, paywall_backend } from 'declarations/paywall_backend';
 
@@ -29,9 +28,16 @@ function App() {
   const [convertToCycles, setConvertToCycles] = useState(false);
 
   const [paywallId, setPaywallId] = useState('');
-  const [paymentAccount, setPaymentAccount] = useState(null);
-  const [paymentStatus, setPaymentStatus] = useState('');
-  const [lookupId, setLookupId] = useState('');
+  const [ownedPaywalls, setOwnedPaywalls] = useState([]);
+  const [paywallConfigs, setPaywallConfigs] = useState({});
+  const [editingId, setEditingId] = useState(null);
+  const [editPriceIcp, setEditPriceIcp] = useState('');
+  const [editDestination, setEditDestination] = useState('');
+  const [editTargetCanister, setEditTargetCanister] = useState('');
+  const [editSessionHours, setEditSessionHours] = useState('');
+  const [editSessionMinutes, setEditSessionMinutes] = useState('');
+  const [editSessionSeconds, setEditSessionSeconds] = useState('');
+  const [editConvertToCycles, setEditConvertToCycles] = useState(false);
 
   const identityProvider = useMemo(() => {
     if (process.env.DFX_NETWORK === 'ic') {
@@ -85,7 +91,6 @@ function App() {
 
   const handleCreatePaywall = async (event) => {
     event.preventDefault();
-    setPaymentStatus('');
 
     const totalSeconds =
       parseDurationPart(sessionHours) * 3600 +
@@ -104,37 +109,61 @@ function App() {
 
     const createdId = await actor.createPaywall(config);
     setPaywallId(createdId);
-    setLookupId(createdId);
+    await fetchOwnedPaywalls();
   };
 
-  const handleLookup = async () => {
-    setPaymentStatus('');
-    if (!lookupId) return;
+  const fetchOwnedPaywalls = useCallback(async () => {
+    if (!isAuthenticated || !principalText) return;
     const actor = await getActor(authClient);
-    const account = await actor.getPaymentAccount(lookupId);
-    setPaymentAccount(account || null);
-  };
-
-  const handleVerifyPayment = async () => {
-    setPaymentStatus('');
-    if (!lookupId) return;
-    const actor = await getActor(authClient);
-    const verified = await actor.verifyPayment(lookupId);
-    setPaymentStatus(
-      verified
-        ? 'Payment verified. Access is active for your session duration.'
-        : 'Payment not detected yet. Make sure the ledger transfer has completed.',
-    );
-  };
-
-  const handleCheckAccess = async () => {
-    if (!lookupId || !principalText) return;
-    const actor = await getActor(authClient);
-    const hasAccess = await actor.hasAccess(
+    const ids = await actor.getOwnedPaywalls(
       Principal.fromText(principalText),
-      lookupId,
     );
-    setPaymentStatus(hasAccess ? 'Access is active.' : 'Access is not active.');
+    setOwnedPaywalls(ids);
+    const configs = {};
+    for (const id of ids) {
+      const config = await actor.getPaywallConfig(id);
+      if (config[0]) configs[id] = config[0];
+    }
+    setPaywallConfigs(configs);
+  }, [authClient, getActor, isAuthenticated, principalText]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !principalText) return;
+    fetchOwnedPaywalls();
+  }, [fetchOwnedPaywalls, isAuthenticated, principalText]);
+
+  const startEdit = (id, config) => {
+    setEditingId(id);
+    setEditPriceIcp((Number(config.price_e8s) / 100_000_000).toString());
+    setEditDestination(config.destination.toText());
+    setEditTargetCanister(config.target_canister.toText());
+    const totalSeconds = Number(config.session_duration_ns) / 1_000_000_000;
+    setEditSessionHours(Math.floor(totalSeconds / 3600).toString());
+    setEditSessionMinutes(
+      Math.floor((totalSeconds % 3600) / 60).toString(),
+    );
+    setEditSessionSeconds((totalSeconds % 60).toString());
+    setEditConvertToCycles(config.convertToCycles);
+  };
+
+  const handleUpdatePaywall = async (event, id) => {
+    event.preventDefault();
+    const totalSeconds =
+      parseDurationPart(editSessionHours) * 3600 +
+      parseDurationPart(editSessionMinutes) * 60 +
+      parseDurationPart(editSessionSeconds);
+    const sessionDurationNs = BigInt(totalSeconds) * 1_000_000_000n;
+    const actor = await getActor(authClient);
+    const updates = {
+      price_e8s: [toE8s(editPriceIcp)],
+      destination: [Principal.fromText(editDestination)],
+      target_canister: [Principal.fromText(editTargetCanister)],
+      session_duration_ns: [sessionDurationNs],
+      convertToCycles: [editConvertToCycles],
+    };
+    await actor.updatePaywall(id, updates);
+    setEditingId(null);
+    await fetchOwnedPaywalls();
   };
 
   return (
@@ -276,54 +305,157 @@ function App() {
           </section>
 
           <section className="card">
-            <h2>Payment verification</h2>
-            <p>
-              Use this tool to retrieve the payment subaccount for your
-              principal, then verify payment once the ledger transfer is
-              complete.
-            </p>
-            <div className="stack">
-              <label>
-                Paywall ID
-                <input
-                  type="text"
-                  value={lookupId}
-                  onChange={(event) => setLookupId(event.target.value)}
-                />
-              </label>
-              <div className="row">
-                <button type="button" onClick={handleLookup}>
-                  Get payment account
-                </button>
-                <button type="button" onClick={handleVerifyPayment}>
-                  Verify payment
-                </button>
-                <button type="button" onClick={handleCheckAccess}>
-                  Check access
-                </button>
-              </div>
-            </div>
-
-            {paymentAccount && (
-              <div className="result">
-                <p>
-                  Transfer to account identifier:{' '}
-                  <span className="mono">
-                    {principalToAccountIdentifier(
-                      paymentAccount.owner,
-                      paymentAccount.subaccount ?? undefined,
-                    )}
-                  </span>
-                </p>
-                <p className="hint">
-                  Copy this Account Identifier into your wallet to send ICP.
-                  Include the ledger fee (0.0001 ICP). After transfer, click
-                  &quot;Verify payment&quot;.
-                </p>
-              </div>
+            <h2>My paywalls</h2>
+            {ownedPaywalls.length === 0 ? (
+              <p>No paywalls created yet.</p>
+            ) : (
+              <ul className="list">
+                {ownedPaywalls.map((id) => {
+                  const config = paywallConfigs[id];
+                  if (!config) return null;
+                  const price = Number(config.price_e8s) / 100_000_000;
+                  const durationSeconds =
+                    Number(config.session_duration_ns) / 1_000_000_000;
+                  const hours = Math.floor(durationSeconds / 3600);
+                  const minutes = Math.floor((durationSeconds % 3600) / 60);
+                  const seconds = Math.floor(durationSeconds % 60);
+                  return (
+                    <li
+                      key={id}
+                      style={{
+                        marginBottom: '16px',
+                        borderBottom: '1px solid #1f2937',
+                        paddingBottom: '16px',
+                      }}
+                    >
+                      <p>
+                        <strong>ID:</strong> {id}
+                      </p>
+                      <p>
+                        <strong>Price:</strong> {price.toFixed(4)} ICP
+                      </p>
+                      <p>
+                        <strong>Destination:</strong>{' '}
+                        {config.destination.toText()}
+                      </p>
+                      <p>
+                        <strong>Target Canister:</strong>{' '}
+                        {config.target_canister.toText()}
+                      </p>
+                      <p>
+                        <strong>Session Duration:</strong> {hours}h {minutes}m{' '}
+                        {seconds}s
+                      </p>
+                      <p>
+                        <strong>Convert to Cycles:</strong>{' '}
+                        {config.convertToCycles ? 'Yes' : 'No'}
+                      </p>
+                      <button type="button" onClick={() => startEdit(id, config)}>
+                        Edit
+                      </button>
+                      {editingId === id && (
+                        <form
+                          className="form"
+                          onSubmit={(event) => handleUpdatePaywall(event, id)}
+                        >
+                          <label>
+                            Edit Price (ICP)
+                            <input
+                              type="number"
+                              step="0.00000001"
+                              min="0"
+                              value={editPriceIcp}
+                              onChange={(event) =>
+                                setEditPriceIcp(event.target.value)
+                              }
+                              required
+                            />
+                          </label>
+                          <label>
+                            Edit Destination
+                            <input
+                              type="text"
+                              value={editDestination}
+                              onChange={(event) =>
+                                setEditDestination(event.target.value)
+                              }
+                              required
+                            />
+                          </label>
+                          <label>
+                            Edit Target Canister
+                            <input
+                              type="text"
+                              value={editTargetCanister}
+                              onChange={(event) =>
+                                setEditTargetCanister(event.target.value)
+                              }
+                              required
+                            />
+                          </label>
+                          <label>
+                            Edit Session Duration
+                            <div className="time-inputs">
+                              <input
+                                type="number"
+                                min="0"
+                                value={editSessionHours}
+                                onChange={(event) =>
+                                  setEditSessionHours(event.target.value)
+                                }
+                                placeholder="Hours"
+                                required
+                              />
+                              <input
+                                type="number"
+                                min="0"
+                                max="59"
+                                value={editSessionMinutes}
+                                onChange={(event) =>
+                                  setEditSessionMinutes(event.target.value)
+                                }
+                                placeholder="Minutes"
+                                required
+                              />
+                              <input
+                                type="number"
+                                min="0"
+                                max="59"
+                                value={editSessionSeconds}
+                                onChange={(event) =>
+                                  setEditSessionSeconds(event.target.value)
+                                }
+                                placeholder="Seconds"
+                                required
+                              />
+                            </div>
+                          </label>
+                          <label>
+                            Edit Convert to Cycles
+                            <input
+                              type="checkbox"
+                              checked={editConvertToCycles}
+                              onChange={(event) =>
+                                setEditConvertToCycles(event.target.checked)
+                              }
+                            />
+                          </label>
+                          <div className="row">
+                            <button type="submit">Update paywall</button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingId(null)}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </form>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
             )}
-
-            {paymentStatus && <p className="status">{paymentStatus}</p>}
           </section>
         </>
       )}

@@ -36,6 +36,17 @@ const formatErrorMessage = (error, fallback) => {
   return stringifyWithBigInt(error);
 };
 
+const formatDuration = (durationNs) => {
+  if (typeof durationNs !== 'bigint' || durationNs < 0n) {
+    return 'an unknown duration';
+  }
+  const totalSeconds = Number(durationNs / 1_000_000_000n);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${hours} hours, ${minutes} minutes, ${seconds} seconds`;
+};
+
 const unwrapSubaccount = (subaccount) => {
   if (!Array.isArray(subaccount) || subaccount.length === 0) {
     return undefined;
@@ -203,11 +214,33 @@ const run = async () => {
           payFromBalanceButton.style.cssText =
             'background:#16a34a;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:14px;cursor:pointer;margin-bottom:12px;';
           payFromBalanceButton.addEventListener('click', async () => {
-            const verified = await authedActor.payFromBalance(paywallId);
-            if (verified) {
-              overlay.remove();
-            } else {
+            const duration = formatDuration(config.session_duration_ns);
+            const confirmMessage = `Are you sure you want to pay ${priceIcp.toFixed(4)} ICP? This will unlock the paywall for ${duration}.`;
+            if (!confirm(confirmMessage)) {
+              return;
+            }
+
+            payFromBalanceButton.disabled = true;
+            payFromBalanceButton.textContent = 'Processing...';
+
+            try {
+              const verified = await authedActor.payFromBalance(paywallId);
+              if (verified) {
+                overlay.remove();
+                return;
+              }
               alert('Payment could not be completed from your balance.');
+            } catch (error) {
+              console.error('Payment error:', error);
+              alert(
+                `An error occurred during payment: ${formatErrorMessage(
+                  error,
+                  'Unknown error - check console for details',
+                )}`,
+              );
+            } finally {
+              payFromBalanceButton.disabled = false;
+              payFromBalanceButton.textContent = 'Pay from balance';
             }
           });
           details.appendChild(payFromBalanceButton);

@@ -41,10 +41,16 @@ const formatDuration = (durationNs) => {
     return 'an unknown duration';
   }
   const totalSeconds = Number(durationNs / 1_000_000_000n);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  return `${hours} hours, ${minutes} minutes, ${seconds} seconds`;
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor(((totalSeconds % 86400) % 3600) / 60);
+  const seconds = (totalSeconds % 86400) % 60;
+  let result = '';
+  if (days > 0) {
+    result += `${days} days, `;
+  }
+  result += `${hours} hours, ${minutes} minutes, ${seconds} seconds`;
+  return result;
 };
 
 const unwrapSubaccount = (subaccount) => {

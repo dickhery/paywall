@@ -65,6 +65,12 @@ body {
   font-size: 0.95rem;
 }
 
+.form-field {
+  display: grid;
+  gap: 8px;
+  font-size: 0.95rem;
+}
+
 input {
   padding: 10px 12px;
   border-radius: 10px;
@@ -110,6 +116,13 @@ button:disabled {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
+}
+
+.time-inputs label {
+  display: grid;
+  gap: 4px;
+  font-size: 0.85rem;
+  min-width: 120px;
 }
 
 .time-inputs input {

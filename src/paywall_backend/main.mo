@@ -1,5 +1,6 @@
 import Array "mo:base/Array";
 import Blob "mo:base/Blob";
+import Debug "mo:base/Debug";
 import HashMap "mo:base/HashMap";
 import Int "mo:base/Int";
 import Iter "mo:base/Iter";
@@ -79,8 +80,32 @@ persistent actor Paywall {
     #Err : NotifyMintCyclesError;
   };
 
+  type NotifyTopUpArgs = {
+    block_index : Nat64;
+    canister_id : Principal;
+  };
+
+  type NotifyTopUpError = {
+    #Refunded : { block_index : ?Nat64; reason : Text };
+    #InvalidTransaction : Text;
+    #Other : { code : Nat32; message : Text };
+    #Processing;
+    #TransactionTooOld : Nat64;
+  };
+
+  type NotifyTopUpResult = {
+    #Ok : Nat;
+    #Err : NotifyTopUpError;
+  };
+
   type CyclesMintingCanister = actor {
     notify_mint_cycles : shared NotifyMintCyclesArgs -> async NotifyMintCyclesResult;
+    notify_top_up : shared NotifyTopUpArgs -> async NotifyTopUpResult;
+  };
+
+  type PaymentResult = {
+    #Ok;
+    #Err : Text;
   };
 
   stable var paywallConfigEntries : [(Text, PaywallConfig)] = [];
@@ -91,6 +116,7 @@ persistent actor Paywall {
 
   transient let ledger : Ledger = actor ("ryjl3-tyaaa-aaaaa-aaaba-cai");
   transient let cmc : CyclesMintingCanister = actor ("rkp4c-7iaaa-aaaaa-aaaca-cai");
+  let ledgerFee : Nat = 10_000;
 
   transient var paywallConfigs = HashMap.HashMap<Text, PaywallConfig>(0, Text.equal, Text.hash);
   transient var paidStatuses = HashMap.HashMap<Principal, HashMap.HashMap<Text, Int>>(
@@ -196,7 +222,7 @@ persistent actor Paywall {
     Blob.fromArray(Array.freeze(output));
   };
 
-  private func buildCmcSubaccount(destination : Principal) : ?Blob {
+  private func buildMintSubaccount(destination : Principal) : ?Blob {
     let principalBytes = Blob.toArray(Principal.toBlob(destination));
     if (principalBytes.size() > 31) {
       return null;
@@ -211,8 +237,33 @@ persistent actor Paywall {
     ?Blob.fromArray(Array.freeze(subaccount));
   };
 
-  private func mintCycles(amount : Nat, from_subaccount : ?Blob, destination : Principal) : async Bool {
-    let ?cmcSubaccount = buildCmcSubaccount(destination) else return false;
+  private func buildTopUpSubaccount(destination : Principal) : ?Blob {
+    let principalBytes = Blob.toArray(Principal.toBlob(destination));
+    if (principalBytes.size() > 31) {
+      return null;
+    };
+    let subaccount = Array.init<Nat8>(32, 0);
+    subaccount[0] := Nat8.fromNat(principalBytes.size());
+    var index = 1;
+    for (byte in principalBytes.vals()) {
+      subaccount[index] := byte;
+      index += 1;
+    };
+    ?Blob.fromArray(Array.freeze(subaccount));
+  };
+
+  private func isCanister(destination : Principal) : Bool {
+    Blob.toArray(Principal.toBlob(destination)).size() == 10;
+  };
+
+  private func mintCycles(
+    amount : Nat,
+    from_subaccount : ?Blob,
+    destination : Principal,
+  ) : async PaymentResult {
+    let ?cmcSubaccount = buildMintSubaccount(destination) else {
+      return #Err("Invalid mint subaccount for destination " # Principal.toText(destination));
+    };
     let memo = Blob.fromArray([0x4D, 0x49, 0x4E, 0x54, 0x00, 0x00, 0x00, 0x00]);
     let transferResult = await ledger.icrc1_transfer({
       to = {
@@ -221,20 +272,108 @@ persistent actor Paywall {
       };
       amount;
       from_subaccount;
-      fee = ?10_000;
+      fee = ?ledgerFee;
       memo = ?memo;
       created_at_time = null;
     });
     switch (transferResult) {
-      case (#Err(_)) false;
+      case (#Err(err)) {
+        Debug.print("CMC mint transfer failed: " # debug_show(err));
+        #Err("CMC mint transfer failed: " # debug_show(err));
+      };
       case (#Ok(blockIndex)) {
         let notifyResult = await cmc.notify_mint_cycles({
           block_index = Nat64.fromNat(blockIndex);
         });
         switch (notifyResult) {
-          case (#Err(_)) false;
-          case (#Ok(_)) true;
+          case (#Err(err)) {
+            Debug.print("CMC mint notify failed: " # debug_show(err));
+            #Err("CMC mint notify failed: " # debug_show(err));
+          };
+          case (#Ok(_)) #Ok;
         };
+      };
+    };
+  };
+
+  private func topUpCanister(
+    amount : Nat,
+    from_subaccount : ?Blob,
+    destination : Principal,
+  ) : async PaymentResult {
+    let ?cmcSubaccount = buildTopUpSubaccount(destination) else {
+      return #Err("Invalid top-up subaccount for destination " # Principal.toText(destination));
+    };
+    let memo = Blob.fromArray([0x54, 0x50, 0x55, 0x50, 0x00, 0x00, 0x00, 0x00]);
+    let transferResult = await ledger.icrc1_transfer({
+      to = {
+        owner = Principal.fromActor(cmc);
+        subaccount = ?cmcSubaccount;
+      };
+      amount;
+      from_subaccount;
+      fee = ?ledgerFee;
+      memo = ?memo;
+      created_at_time = null;
+    });
+    switch (transferResult) {
+      case (#Err(err)) {
+        Debug.print("CMC top-up transfer failed: " # debug_show(err));
+        #Err("CMC top-up transfer failed: " # debug_show(err));
+      };
+      case (#Ok(blockIndex)) {
+        let notifyResult = await cmc.notify_top_up({
+          block_index = Nat64.fromNat(blockIndex);
+          canister_id = destination;
+        });
+        switch (notifyResult) {
+          case (#Err(err)) {
+            Debug.print("CMC top-up notify failed: " # debug_show(err));
+            #Err("CMC top-up notify failed: " # debug_show(err));
+          };
+          case (#Ok(_)) #Ok;
+        };
+      };
+    };
+  };
+
+  private func sendPayment(
+    amount : Nat,
+    from_subaccount : ?Blob,
+    destination : Principal,
+    convertToCycles : Bool,
+  ) : async PaymentResult {
+    if (not convertToCycles) {
+      Debug.print("Sending direct ICP transfer to " # Principal.toText(destination));
+      let transferResult = await ledger.icrc1_transfer({
+        to = {
+          owner = destination;
+          subaccount = null;
+        };
+        amount;
+        from_subaccount;
+        fee = ?ledgerFee;
+        memo = null;
+        created_at_time = null;
+      });
+      switch (transferResult) {
+        case (#Err(err)) {
+          Debug.print("Direct transfer failed: " # debug_show(err));
+          #Err("Direct transfer failed: " # debug_show(err));
+        };
+        case (#Ok(_)) #Ok;
+      };
+    } else {
+      let canisterTarget = isCanister(destination);
+      Debug.print(
+        "Convert to cycles enabled. Destination is canister format: " #
+        (if (canisterTarget) { "true" } else { "false" }) # " (" #
+        Principal.toText(destination) # ")",
+      );
+      if (canisterTarget) {
+        await topUpCanister(amount, from_subaccount, destination);
+      } else {
+        await mintCycles(amount, from_subaccount, destination);
       };
     };
   };
@@ -283,47 +422,42 @@ persistent actor Paywall {
       to;
       amount;
       from_subaccount = ?subaccount;
-      fee = ?10_000;
+      fee = ?ledgerFee;
       memo = null;
       created_at_time = null;
     });
   };
 
-  public shared(msg) func payFromBalance(paywallId : Text) : async Bool {
+  public shared(msg) func payFromBalance(paywallId : Text) : async PaymentResult {
     let caller = msg.caller;
-    let ?config = paywallConfigs.get(paywallId) else return false;
+    let ?config = paywallConfigs.get(paywallId) else return #Err("Invalid paywall ID");
     let userSubaccount = await deriveUserSubaccount(caller);
     let balance = await ledger.icrc1_balance_of({
       owner = Principal.fromActor(Paywall);
       subaccount = ?userSubaccount;
     });
 
-    if (balance < config.price_e8s) {
-      return false;
+    if (balance < config.price_e8s + ledgerFee) {
+      return #Err(
+        "Insufficient balance: have " # Nat.toText(balance) # ", need " #
+        Nat.toText(config.price_e8s + ledgerFee),
+      );
     };
 
-    let paid = if (config.convertToCycles) {
-      await mintCycles(config.price_e8s, ?userSubaccount, config.destination);
-    } else {
-      let transferResult = await ledger.icrc1_transfer({
-        to = {
-          owner = config.destination;
-          subaccount = null;
-        };
-        amount = config.price_e8s;
-        from_subaccount = ?userSubaccount;
-        fee = ?10_000;
-        memo = null;
-        created_at_time = null;
-      });
-      switch (transferResult) {
-        case (#Err(_)) false;
-        case (#Ok(_)) true;
+    let paidResult = await sendPayment(
+      config.price_e8s,
+      ?userSubaccount,
+      config.destination,
+      config.convertToCycles,
+    );
+    switch (paidResult) {
+      case (#Err(message)) {
+        Debug.print(
+          "Payment failed for " # Principal.toText(caller) # ": " # message,
+        );
+        return #Err(message);
       };
-    };
-
-    if (not paid) {
-      return false;
+      case (#Ok) {};
     };
 
     let expiry = Time.now() + config.session_duration_ns;
@@ -336,44 +470,40 @@ persistent actor Paywall {
       };
     };
     userMap.put(paywallId, expiry);
-    true;
+    #Ok;
   };
 
-  public shared(msg) func verifyPayment(paywallId : Text) : async Bool {
+  public shared(msg) func verifyPayment(paywallId : Text) : async PaymentResult {
     let caller = msg.caller;
-    let ?config = paywallConfigs.get(paywallId) else return false;
+    let ?config = paywallConfigs.get(paywallId) else return #Err("Invalid paywall ID");
     let subaccount = await deriveSubaccount(paywallId, caller);
     let balance = await ledger.icrc1_balance_of({
       owner = Principal.fromActor(Paywall);
       subaccount = ?subaccount;
     });
 
-    if (balance < config.price_e8s) {
-      return false;
+    if (balance < config.price_e8s + ledgerFee) {
+      return #Err(
+        "Insufficient balance: have " # Nat.toText(balance) # ", need " #
+        Nat.toText(config.price_e8s + ledgerFee),
+      );
     };
 
-    let paid = if (config.convertToCycles) {
-      await mintCycles(config.price_e8s, ?subaccount, config.destination);
-    } else {
-      let transferResult = await ledger.icrc1_transfer({
-        to = {
-          owner = config.destination;
-          subaccount = null;
-        };
-        amount = config.price_e8s;
-        from_subaccount = ?subaccount;
-        fee = ?10_000;
-        memo = null;
-        created_at_time = null;
-      });
-      switch (transferResult) {
-        case (#Err(_)) false;
-        case (#Ok(_)) true;
+    let paidResult = await sendPayment(
+      config.price_e8s,
+      ?subaccount,
+      config.destination,
+      config.convertToCycles,
+    );
+    switch (paidResult) {
+      case (#Err(message)) {
+        Debug.print(
+          "Verification payment failed for " # Principal.toText(caller) # ": " #
+          message,
+        );
+        return #Err(message);
       };
-    };
-
-    if (not paid) {
-      return false;
+      case (#Ok) {};
     };
 
     let expiry = Time.now() + config.session_duration_ns;
@@ -386,7 +516,7 @@ persistent actor Paywall {
       };
     };
     userMap.put(paywallId, expiry);
-    true;
+    #Ok;
   };
 
   public query func hasAccess(user : Principal, paywallId : Text) : async Bool {

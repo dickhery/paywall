@@ -7,6 +7,7 @@ import { Principal } from '@dfinity/principal';
 
 const II_URL = 'https://identity.ic0.app/#authorize';
 const DEFAULT_LEDGER_ID = 'ryjl3-tyaaa-aaaaa-aaaba-cai';
+const LEDGER_FEE_E8S = 10000n;
 
 if (!globalThis.Buffer) {
   globalThis.Buffer = Buffer;
@@ -73,13 +74,14 @@ const idlFactory = ({ IDL }) => {
     owner: IDL.Principal,
     subaccount: IDL.Opt(IDL.Vec(IDL.Nat8)),
   });
+  const PaymentResult = IDL.Variant({ Ok: IDL.Null, Err: IDL.Text });
   return IDL.Service({
     getPaywallConfig: IDL.Func([IDL.Text], [IDL.Opt(PaywallConfig)], ['query']),
     getPaymentAccount: IDL.Func([IDL.Text], [IDL.Opt(Account)], []),
     getUserAccount: IDL.Func([], [Account], []),
     hasAccess: IDL.Func([IDL.Principal, IDL.Text], [IDL.Bool], ['query']),
-    payFromBalance: IDL.Func([IDL.Text], [IDL.Bool], []),
-    verifyPayment: IDL.Func([IDL.Text], [IDL.Bool], []),
+    payFromBalance: IDL.Func([IDL.Text], [PaymentResult], []),
+    verifyPayment: IDL.Func([IDL.Text], [PaymentResult], []),
     withdrawFromWallet: IDL.Func([IDL.Nat, Account], [IDL.Variant({ Ok: IDL.Nat, Err: IDL.Variant({ BadFee: IDL.Record({ expected_fee: IDL.Nat }), BadBurn: IDL.Record({ min_burn_amount: IDL.Nat }), Duplicate: IDL.Record({ duplicate_of: IDL.Nat }), InsufficientFunds: IDL.Record({ balance: IDL.Nat }), CreatedInFuture: IDL.Record({ ledger_time: IDL.Nat64 }), TooOld: IDL.Null, TemporarilyUnavailable: IDL.Null, GenericError: IDL.Record({ message: IDL.Text, error_code: IDL.Nat }) }) })], []),
   });
 };
@@ -211,17 +213,17 @@ const run = async () => {
 
         const balanceLine = document.createElement('p');
         balanceLine.style.margin = '0 0 12px';
-        balanceLine.textContent = `Your paywall balance: ${userBalanceIcp.toFixed(4)} ICP`;
+        balanceLine.textContent = `Your paywall balance: ${userBalanceIcp.toFixed(8)} ICP (0.0001 ICP fee applies)`;
         details.appendChild(balanceLine);
 
-        if (userBalanceE8s >= config.price_e8s) {
+        if (userBalanceE8s >= config.price_e8s + LEDGER_FEE_E8S) {
           const payFromBalanceButton = document.createElement('button');
           payFromBalanceButton.textContent = 'Pay from balance';
           payFromBalanceButton.style.cssText =
             'background:#16a34a;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:14px;cursor:pointer;margin-bottom:12px;';
           payFromBalanceButton.addEventListener('click', async () => {
             const duration = formatDuration(config.session_duration_ns);
-            const confirmMessage = `Are you sure you want to pay ${priceIcp.toFixed(4)} ICP? This will unlock the paywall for ${duration}.`;
+            const confirmMessage = `Are you sure you want to pay ${priceIcp.toFixed(8)} ICP (plus 0.0001 ICP fee)? This will unlock the paywall for ${duration}.`;
             if (!confirm(confirmMessage)) {
               return;
             }
@@ -230,14 +232,33 @@ const run = async () => {
             payFromBalanceButton.textContent = 'Processing...';
 
             try {
-              const verified = await authedActor.payFromBalance(paywallId);
-              if (verified) {
+              const result = await authedActor.payFromBalance(paywallId);
+              if ('Ok' in result) {
                 overlay.remove();
                 return;
               }
-              alert('Payment could not be completed from your balance.');
+              const errorText = result.Err || 'Unknown error';
+              console.error('Payment failed:', errorText);
+              console.info('Payment result:', stringifyWithBigInt(result));
+              console.info('Paywall ID:', paywallId);
+              console.info('Paywall config:', stringifyWithBigInt(config));
+              console.info('User principal:', identity.getPrincipal().toText());
+              console.info('Convert to cycles:', config.convertToCycles);
+              console.info('Destination:', config.destination.toText());
+              alert(
+                `Payment could not be completed from your balance: ${errorText}. Check developer console for details.`,
+              );
             } catch (error) {
               console.error('Payment error:', error);
+              if (error?.stack) {
+                console.error('Payment error stack:', error.stack);
+              }
+              console.info('Payment error details:', stringifyWithBigInt(error));
+              console.info('Paywall ID:', paywallId);
+              console.info('Paywall config:', stringifyWithBigInt(config));
+              console.info('User principal:', identity.getPrincipal().toText());
+              console.info('Convert to cycles:', config.convertToCycles);
+              console.info('Destination:', config.destination.toText());
               alert(
                 `An error occurred during payment: ${formatErrorMessage(
                   error,
@@ -295,7 +316,7 @@ const run = async () => {
           note.style.margin = '0 0 12px';
           note.style.fontStyle = 'italic';
           note.textContent =
-            'Copy this Account Identifier into your wallet (e.g., NNS dapp) to send ICP. After transfer, refresh or re-login to see updated balance.';
+            `Deposit at least ${(priceIcp + 0.0001).toFixed(8)} ICP (including the 0.0001 ICP ledger fee, plus any wallet fees). Copy this Account Identifier into your wallet (e.g., NNS dapp) to send ICP. After transfer, refresh or re-login to see updated balance.`;
           details.appendChild(note);
         }
 

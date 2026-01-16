@@ -74,13 +74,14 @@ const idlFactory = ({ IDL }) => {
     owner: IDL.Principal,
     subaccount: IDL.Opt(IDL.Vec(IDL.Nat8)),
   });
+  const PaymentResult = IDL.Variant({ Ok: IDL.Null, Err: IDL.Text });
   return IDL.Service({
     getPaywallConfig: IDL.Func([IDL.Text], [IDL.Opt(PaywallConfig)], ['query']),
     getPaymentAccount: IDL.Func([IDL.Text], [IDL.Opt(Account)], []),
     getUserAccount: IDL.Func([], [Account], []),
     hasAccess: IDL.Func([IDL.Principal, IDL.Text], [IDL.Bool], ['query']),
-    payFromBalance: IDL.Func([IDL.Text], [IDL.Bool], []),
-    verifyPayment: IDL.Func([IDL.Text], [IDL.Bool], []),
+    payFromBalance: IDL.Func([IDL.Text], [PaymentResult], []),
+    verifyPayment: IDL.Func([IDL.Text], [PaymentResult], []),
     withdrawFromWallet: IDL.Func([IDL.Nat, Account], [IDL.Variant({ Ok: IDL.Nat, Err: IDL.Variant({ BadFee: IDL.Record({ expected_fee: IDL.Nat }), BadBurn: IDL.Record({ min_burn_amount: IDL.Nat }), Duplicate: IDL.Record({ duplicate_of: IDL.Nat }), InsufficientFunds: IDL.Record({ balance: IDL.Nat }), CreatedInFuture: IDL.Record({ ledger_time: IDL.Nat64 }), TooOld: IDL.Null, TemporarilyUnavailable: IDL.Null, GenericError: IDL.Record({ message: IDL.Text, error_code: IDL.Nat }) }) })], []),
   });
 };
@@ -231,12 +232,16 @@ const run = async () => {
             payFromBalanceButton.textContent = 'Processing...';
 
             try {
-              const verified = await authedActor.payFromBalance(paywallId);
-              if (verified) {
+              const result = await authedActor.payFromBalance(paywallId);
+              if ('Ok' in result) {
                 overlay.remove();
                 return;
               }
-              alert('Payment could not be completed from your balance.');
+              const errorText = result.Err || 'Unknown error';
+              console.error('Payment failed:', errorText);
+              alert(
+                `Payment could not be completed from your balance: ${errorText}`,
+              );
             } catch (error) {
               console.error('Payment error:', error);
               alert(

@@ -91,6 +91,7 @@ persistent actor Paywall {
 
   transient let ledger : Ledger = actor ("ryjl3-tyaaa-aaaaa-aaaba-cai");
   transient let cmc : CyclesMintingCanister = actor ("rkp4c-7iaaa-aaaaa-aaaca-cai");
+  let ledgerFee : Nat = 10_000;
 
   transient var paywallConfigs = HashMap.HashMap<Text, PaywallConfig>(0, Text.equal, Text.hash);
   transient var paidStatuses = HashMap.HashMap<Principal, HashMap.HashMap<Text, Int>>(
@@ -221,7 +222,7 @@ persistent actor Paywall {
       };
       amount;
       from_subaccount;
-      fee = ?10_000;
+      fee = ?ledgerFee;
       memo = ?memo;
       created_at_time = null;
     });
@@ -283,7 +284,7 @@ persistent actor Paywall {
       to;
       amount;
       from_subaccount = ?subaccount;
-      fee = ?10_000;
+      fee = ?ledgerFee;
       memo = null;
       created_at_time = null;
     });
@@ -298,7 +299,7 @@ persistent actor Paywall {
       subaccount = ?userSubaccount;
     });
 
-    if (balance < config.price_e8s) {
+    if (balance < config.price_e8s + ledgerFee) {
       return false;
     };
 
@@ -312,7 +313,7 @@ persistent actor Paywall {
         };
         amount = config.price_e8s;
         from_subaccount = ?userSubaccount;
-        fee = ?10_000;
+        fee = ?ledgerFee;
         memo = null;
         created_at_time = null;
       });
@@ -348,7 +349,7 @@ persistent actor Paywall {
       subaccount = ?subaccount;
     });
 
-    if (balance < config.price_e8s) {
+    if (balance < config.price_e8s + ledgerFee) {
       return false;
     };
 
@@ -362,7 +363,7 @@ persistent actor Paywall {
         };
         amount = config.price_e8s;
         from_subaccount = ?subaccount;
-        fee = ?10_000;
+        fee = ?ledgerFee;
         memo = null;
         created_at_time = null;
       });

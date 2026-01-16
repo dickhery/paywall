@@ -7,6 +7,7 @@ import { Principal } from '@dfinity/principal';
 
 const II_URL = 'https://identity.ic0.app/#authorize';
 const DEFAULT_LEDGER_ID = 'ryjl3-tyaaa-aaaaa-aaaba-cai';
+const LEDGER_FEE_E8S = 10000n;
 
 if (!globalThis.Buffer) {
   globalThis.Buffer = Buffer;
@@ -211,17 +212,17 @@ const run = async () => {
 
         const balanceLine = document.createElement('p');
         balanceLine.style.margin = '0 0 12px';
-        balanceLine.textContent = `Your paywall balance: ${userBalanceIcp.toFixed(4)} ICP`;
+        balanceLine.textContent = `Your paywall balance: ${userBalanceIcp.toFixed(8)} ICP (0.0001 ICP fee applies)`;
         details.appendChild(balanceLine);
 
-        if (userBalanceE8s >= config.price_e8s) {
+        if (userBalanceE8s >= config.price_e8s + LEDGER_FEE_E8S) {
           const payFromBalanceButton = document.createElement('button');
           payFromBalanceButton.textContent = 'Pay from balance';
           payFromBalanceButton.style.cssText =
             'background:#16a34a;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:14px;cursor:pointer;margin-bottom:12px;';
           payFromBalanceButton.addEventListener('click', async () => {
             const duration = formatDuration(config.session_duration_ns);
-            const confirmMessage = `Are you sure you want to pay ${priceIcp.toFixed(4)} ICP? This will unlock the paywall for ${duration}.`;
+            const confirmMessage = `Are you sure you want to pay ${priceIcp.toFixed(8)} ICP (plus 0.0001 ICP fee)? This will unlock the paywall for ${duration}.`;
             if (!confirm(confirmMessage)) {
               return;
             }
@@ -295,7 +296,7 @@ const run = async () => {
           note.style.margin = '0 0 12px';
           note.style.fontStyle = 'italic';
           note.textContent =
-            'Copy this Account Identifier into your wallet (e.g., NNS dapp) to send ICP. After transfer, refresh or re-login to see updated balance.';
+            `Deposit at least ${(priceIcp + 0.0001).toFixed(8)} ICP (including the 0.0001 ICP ledger fee, plus any wallet fees). Copy this Account Identifier into your wallet (e.g., NNS dapp) to send ICP. After transfer, refresh or re-login to see updated balance.`;
           details.appendChild(note);
         }
 

@@ -103,18 +103,6 @@ persistent actor Paywall {
     notify_top_up : shared NotifyTopUpArgs -> async NotifyTopUpResult;
   };
 
-  type CanisterStatusResult = {
-    status : {
-      #stopped;
-      #stopping;
-      #running;
-    };
-  };
-
-  type ManagementCanister = actor {
-    canister_status : shared { canister_id : Principal } -> async CanisterStatusResult;
-  };
-
   type PaymentResult = {
     #Ok;
     #Err : Text;
@@ -128,7 +116,6 @@ persistent actor Paywall {
 
   transient let ledger : Ledger = actor ("ryjl3-tyaaa-aaaaa-aaaba-cai");
   transient let cmc : CyclesMintingCanister = actor ("rkp4c-7iaaa-aaaaa-aaaca-cai");
-  transient let ic : ManagementCanister = actor ("aaaaa-aa");
   let ledgerFee : Nat = 10_000;
 
   transient var paywallConfigs = HashMap.HashMap<Text, PaywallConfig>(0, Text.equal, Text.hash);
@@ -264,13 +251,8 @@ persistent actor Paywall {
     ?Blob.fromArray(Array.freeze(subaccount));
   };
 
-  private func isCanister(destination : Principal) : async Bool {
-    try {
-      ignore await ic.canister_status({ canister_id = destination });
-      true;
-    } catch (_) {
-      false;
-    };
+  private func isCanister(destination : Principal) : Bool {
+    Blob.toArray(Principal.toBlob(destination)).size() == 10;
   };
 
   private func mintCycles(
@@ -361,6 +343,7 @@ persistent actor Paywall {
     convertToCycles : Bool,
   ) : async PaymentResult {
     if (not convertToCycles) {
+      Debug.print("Sending direct ICP transfer to " # Principal.toText(destination));
       let transferResult = await ledger.icrc1_transfer({
         to = {
           owner = destination;
@@ -380,7 +363,12 @@ persistent actor Paywall {
         case (#Ok(_)) #Ok;
       };
     } else {
-      let canisterTarget = await isCanister(destination);
+      let canisterTarget = isCanister(destination);
+      Debug.print(
+        "Convert to cycles enabled. Destination is canister format: " #
+        (if (canisterTarget) { "true" } else { "false" }) # " (" #
+        Principal.toText(destination) # ")",
+      );
       if (canisterTarget) {
         await topUpCanister(amount, from_subaccount, destination);
       } else {

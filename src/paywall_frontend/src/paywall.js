@@ -239,11 +239,20 @@ const run = async () => {
               }
               const errorText = result.Err || 'Unknown error';
               console.error('Payment failed:', errorText);
+              console.info('Payment result:', stringifyWithBigInt(result));
+              console.info('Paywall ID:', paywallId);
+              console.info('Paywall config:', stringifyWithBigInt(config));
               alert(
                 `Payment could not be completed from your balance: ${errorText}`,
               );
             } catch (error) {
               console.error('Payment error:', error);
+              if (error?.stack) {
+                console.error('Payment error stack:', error.stack);
+              }
+              console.info('Payment error details:', stringifyWithBigInt(error));
+              console.info('Paywall ID:', paywallId);
+              console.info('Paywall config:', stringifyWithBigInt(config));
               alert(
                 `An error occurred during payment: ${formatErrorMessage(
                   error,

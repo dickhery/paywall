@@ -242,8 +242,11 @@ const run = async () => {
               console.info('Payment result:', stringifyWithBigInt(result));
               console.info('Paywall ID:', paywallId);
               console.info('Paywall config:', stringifyWithBigInt(config));
+              console.info('User principal:', identity.getPrincipal().toText());
+              console.info('Convert to cycles:', config.convertToCycles);
+              console.info('Destination:', config.destination.toText());
               alert(
-                `Payment could not be completed from your balance: ${errorText}`,
+                `Payment could not be completed from your balance: ${errorText}. Check developer console for details.`,
               );
             } catch (error) {
               console.error('Payment error:', error);
@@ -253,6 +256,9 @@ const run = async () => {
               console.info('Payment error details:', stringifyWithBigInt(error));
               console.info('Paywall ID:', paywallId);
               console.info('Paywall config:', stringifyWithBigInt(config));
+              console.info('User principal:', identity.getPrincipal().toText());
+              console.info('Convert to cycles:', config.convertToCycles);
+              console.info('Destination:', config.destination.toText());
               alert(
                 `An error occurred during payment: ${formatErrorMessage(
                   error,

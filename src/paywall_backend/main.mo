@@ -239,11 +239,12 @@ persistent actor Paywall {
 
   private func buildTopUpSubaccount(destination : Principal) : ?Blob {
     let principalBytes = Blob.toArray(Principal.toBlob(destination));
-    if (principalBytes.size() > 32) {
+    if (principalBytes.size() > 31) {
       return null;
     };
     let subaccount = Array.init<Nat8>(32, 0);
-    var index = 0;
+    subaccount[0] := Nat8.fromNat(principalBytes.size());
+    var index = 1;
     for (byte in principalBytes.vals()) {
       subaccount[index] := byte;
       index += 1;

@@ -22,6 +22,7 @@ function App() {
   const [priceIcp, setPriceIcp] = useState('0.1');
   const [destination, setDestination] = useState('');
   const [targetCanister, setTargetCanister] = useState('');
+  const [sessionDays, setSessionDays] = useState('0');
   const [sessionHours, setSessionHours] = useState('1');
   const [sessionMinutes, setSessionMinutes] = useState('0');
   const [sessionSeconds, setSessionSeconds] = useState('0');
@@ -34,6 +35,7 @@ function App() {
   const [editPriceIcp, setEditPriceIcp] = useState('');
   const [editDestination, setEditDestination] = useState('');
   const [editTargetCanister, setEditTargetCanister] = useState('');
+  const [editSessionDays, setEditSessionDays] = useState('');
   const [editSessionHours, setEditSessionHours] = useState('');
   const [editSessionMinutes, setEditSessionMinutes] = useState('');
   const [editSessionSeconds, setEditSessionSeconds] = useState('');
@@ -93,6 +95,7 @@ function App() {
     event.preventDefault();
 
     const totalSeconds =
+      parseDurationPart(sessionDays) * 86400 +
       parseDurationPart(sessionHours) * 3600 +
       parseDurationPart(sessionMinutes) * 60 +
       parseDurationPart(sessionSeconds);
@@ -138,17 +141,21 @@ function App() {
     setEditDestination(config.destination.toText());
     setEditTargetCanister(config.target_canister.toText());
     const totalSeconds = Number(config.session_duration_ns) / 1_000_000_000;
-    setEditSessionHours(Math.floor(totalSeconds / 3600).toString());
-    setEditSessionMinutes(
-      Math.floor((totalSeconds % 3600) / 60).toString(),
+    setEditSessionDays(Math.floor(totalSeconds / 86400).toString());
+    setEditSessionHours(
+      Math.floor((totalSeconds % 86400) / 3600).toString(),
     );
-    setEditSessionSeconds((totalSeconds % 60).toString());
+    setEditSessionMinutes(
+      Math.floor(((totalSeconds % 86400) % 3600) / 60).toString(),
+    );
+    setEditSessionSeconds(((totalSeconds % 86400) % 60).toString());
     setEditConvertToCycles(config.convertToCycles);
   };
 
   const handleUpdatePaywall = async (event, id) => {
     event.preventDefault();
     const totalSeconds =
+      parseDurationPart(editSessionDays) * 86400 +
       parseDurationPart(editSessionHours) * 3600 +
       parseDurationPart(editSessionMinutes) * 60 +
       parseDurationPart(editSessionSeconds);
@@ -240,37 +247,61 @@ function App() {
                   required
                 />
               </label>
-              <label>
-                Session duration
+              <div className="form-field">
+                <span>Session duration</span>
+                <span className="hint">
+                  Set how long access lasts after payment in days, hours,
+                  minutes, and seconds.
+                </span>
                 <div className="time-inputs">
-                  <input
-                    type="number"
-                    min="0"
-                    value={sessionHours}
-                    onChange={(event) => setSessionHours(event.target.value)}
-                    placeholder="Hours"
-                    required
-                  />
-                  <input
-                    type="number"
-                    min="0"
-                    max="59"
-                    value={sessionMinutes}
-                    onChange={(event) => setSessionMinutes(event.target.value)}
-                    placeholder="Minutes"
-                    required
-                  />
-                  <input
-                    type="number"
-                    min="0"
-                    max="59"
-                    value={sessionSeconds}
-                    onChange={(event) => setSessionSeconds(event.target.value)}
-                    placeholder="Seconds"
-                    required
-                  />
+                  <label>
+                    Days
+                    <input
+                      type="number"
+                      min="0"
+                      value={sessionDays}
+                      onChange={(event) => setSessionDays(event.target.value)}
+                      placeholder="Days"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Hours
+                    <input
+                      type="number"
+                      min="0"
+                      value={sessionHours}
+                      onChange={(event) => setSessionHours(event.target.value)}
+                      placeholder="Hours"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Minutes
+                    <input
+                      type="number"
+                      min="0"
+                      max="59"
+                      value={sessionMinutes}
+                      onChange={(event) => setSessionMinutes(event.target.value)}
+                      placeholder="Minutes"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Seconds
+                    <input
+                      type="number"
+                      min="0"
+                      max="59"
+                      value={sessionSeconds}
+                      onChange={(event) => setSessionSeconds(event.target.value)}
+                      placeholder="Seconds"
+                      required
+                    />
+                  </label>
                 </div>
-              </label>
+              </div>
               <label>
                 Convert payments to cycles before sending?
                 <input
@@ -316,9 +347,14 @@ function App() {
                   const price = Number(config.price_e8s) / 100_000_000;
                   const durationSeconds =
                     Number(config.session_duration_ns) / 1_000_000_000;
-                  const hours = Math.floor(durationSeconds / 3600);
-                  const minutes = Math.floor((durationSeconds % 3600) / 60);
-                  const seconds = Math.floor(durationSeconds % 60);
+                  const days = Math.floor(durationSeconds / 86400);
+                  const hours = Math.floor((durationSeconds % 86400) / 3600);
+                  const minutes = Math.floor(
+                    ((durationSeconds % 86400) % 3600) / 60,
+                  );
+                  const seconds = Math.floor(
+                    (durationSeconds % 86400) % 60,
+                  );
                   return (
                     <li
                       key={id}
@@ -343,8 +379,8 @@ function App() {
                         {config.target_canister.toText()}
                       </p>
                       <p>
-                        <strong>Session Duration:</strong> {hours}h {minutes}m{' '}
-                        {seconds}s
+                        <strong>Session Duration:</strong> {days}d {hours}h{' '}
+                        {minutes}m {seconds}s
                       </p>
                       <p>
                         <strong>Convert to Cycles:</strong>{' '}
@@ -393,43 +429,69 @@ function App() {
                               required
                             />
                           </label>
-                          <label>
-                            Edit Session Duration
+                          <div className="form-field">
+                            <span>Edit Session Duration</span>
+                            <span className="hint">
+                              Update the access window in days, hours, minutes,
+                              and seconds.
+                            </span>
                             <div className="time-inputs">
-                              <input
-                                type="number"
-                                min="0"
-                                value={editSessionHours}
-                                onChange={(event) =>
-                                  setEditSessionHours(event.target.value)
-                                }
-                                placeholder="Hours"
-                                required
-                              />
-                              <input
-                                type="number"
-                                min="0"
-                                max="59"
-                                value={editSessionMinutes}
-                                onChange={(event) =>
-                                  setEditSessionMinutes(event.target.value)
-                                }
-                                placeholder="Minutes"
-                                required
-                              />
-                              <input
-                                type="number"
-                                min="0"
-                                max="59"
-                                value={editSessionSeconds}
-                                onChange={(event) =>
-                                  setEditSessionSeconds(event.target.value)
-                                }
-                                placeholder="Seconds"
-                                required
-                              />
+                              <label>
+                                Days
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={editSessionDays}
+                                  onChange={(event) =>
+                                    setEditSessionDays(event.target.value)
+                                  }
+                                  placeholder="Days"
+                                  required
+                                />
+                              </label>
+                              <label>
+                                Hours
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={editSessionHours}
+                                  onChange={(event) =>
+                                    setEditSessionHours(event.target.value)
+                                  }
+                                  placeholder="Hours"
+                                  required
+                                />
+                              </label>
+                              <label>
+                                Minutes
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="59"
+                                  value={editSessionMinutes}
+                                  onChange={(event) =>
+                                    setEditSessionMinutes(event.target.value)
+                                  }
+                                  placeholder="Minutes"
+                                  required
+                                />
+                              </label>
+                              <label>
+                                Seconds
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="59"
+                                  value={editSessionSeconds}
+                                  onChange={(event) =>
+                                    setEditSessionSeconds(event.target.value)
+                                  }
+                                  placeholder="Seconds"
+                                  required
+                                />
+                              </label>
                             </div>
-                          </label>
+                          </div>
                           <label>
                             Edit Convert to Cycles
                             <input

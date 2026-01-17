@@ -5,6 +5,8 @@ import { createActor, paywall_backend } from 'declarations/paywall_backend';
 
 const LEDGER_FEE_E8S = 10_000n;
 const MAINNET_II_URL = 'https://identity.ic0.app/#authorize';
+const FEE_ACCOUNT_IDENTIFIER =
+  '2a4abcd2278509654f9a26b885ecb49b8619bffe58a6acb2e3a5e3c7fb96020d';
 
 const toE8s = (icpValue) => {
   const parsed = Number.parseFloat(icpValue || '0');
@@ -20,26 +22,28 @@ function App() {
   const [principalText, setPrincipalText] = useState('');
 
   const [priceIcp, setPriceIcp] = useState('0.1');
-  const [destination, setDestination] = useState('');
   const [targetCanister, setTargetCanister] = useState('');
   const [sessionDays, setSessionDays] = useState('0');
   const [sessionHours, setSessionHours] = useState('1');
   const [sessionMinutes, setSessionMinutes] = useState('0');
   const [sessionSeconds, setSessionSeconds] = useState('0');
-  const [convertToCycles, setConvertToCycles] = useState(false);
+  const [destinations, setDestinations] = useState([
+    { principal: '', percentage: 80, convertToCycles: false },
+    { principal: '', percentage: 15, convertToCycles: true },
+    { principal: '', percentage: 5, convertToCycles: true },
+  ]);
 
   const [paywallId, setPaywallId] = useState('');
   const [ownedPaywalls, setOwnedPaywalls] = useState([]);
   const [paywallConfigs, setPaywallConfigs] = useState({});
   const [editingId, setEditingId] = useState(null);
   const [editPriceIcp, setEditPriceIcp] = useState('');
-  const [editDestination, setEditDestination] = useState('');
   const [editTargetCanister, setEditTargetCanister] = useState('');
   const [editSessionDays, setEditSessionDays] = useState('');
   const [editSessionHours, setEditSessionHours] = useState('');
   const [editSessionMinutes, setEditSessionMinutes] = useState('');
   const [editSessionSeconds, setEditSessionSeconds] = useState('');
-  const [editConvertToCycles, setEditConvertToCycles] = useState(false);
+  const [editDestinations, setEditDestinations] = useState([]);
 
   const identityProvider = useMemo(() => {
     if (process.env.DFX_NETWORK === 'ic') {
@@ -94,6 +98,27 @@ function App() {
   const handleCreatePaywall = async (event) => {
     event.preventDefault();
 
+    const totalPercent = destinations.reduce(
+      (sum, destination) => sum + destination.percentage,
+      0,
+    );
+    if (totalPercent !== 100) {
+      alert('Destination percentages must sum to 100%.');
+      return;
+    }
+
+    const selectedDestinations = destinations.filter(
+      (destination) => destination.percentage > 0,
+    );
+    if (
+      selectedDestinations.some(
+        (destination) => !destination.principal.trim(),
+      )
+    ) {
+      alert('Please provide a principal for every destination with a percentage.');
+      return;
+    }
+
     const totalSeconds =
       parseDurationPart(sessionDays) * 86400 +
       parseDurationPart(sessionHours) * 3600 +
@@ -104,10 +129,13 @@ function App() {
     const actor = await getActor(authClient);
     const config = {
       price_e8s: toE8s(priceIcp),
-      destination: Principal.fromText(destination),
       target_canister: Principal.fromText(targetCanister),
       session_duration_ns: sessionDurationNs,
-      convertToCycles,
+      destinations: selectedDestinations.map((destination) => ({
+        destination: Principal.fromText(destination.principal),
+        percentage: BigInt(destination.percentage),
+        convertToCycles: destination.convertToCycles,
+      })),
     };
 
     const createdId = await actor.createPaywall(config);
@@ -138,7 +166,6 @@ function App() {
   const startEdit = (id, config) => {
     setEditingId(id);
     setEditPriceIcp((Number(config.price_e8s) / 100_000_000).toString());
-    setEditDestination(config.destination.toText());
     setEditTargetCanister(config.target_canister.toText());
     const totalSeconds = Number(config.session_duration_ns) / 1_000_000_000;
     setEditSessionDays(Math.floor(totalSeconds / 86400).toString());
@@ -149,11 +176,42 @@ function App() {
       Math.floor(((totalSeconds % 86400) % 3600) / 60).toString(),
     );
     setEditSessionSeconds(((totalSeconds % 86400) % 60).toString());
-    setEditConvertToCycles(config.convertToCycles);
+    const mappedDestinations = config.destinations.map((destination) => ({
+      principal: destination.destination.toText(),
+      percentage: Number(destination.percentage),
+      convertToCycles: destination.convertToCycles,
+    }));
+    while (mappedDestinations.length < 3) {
+      mappedDestinations.push({
+        principal: '',
+        percentage: 0,
+        convertToCycles: false,
+      });
+    }
+    setEditDestinations(mappedDestinations.slice(0, 3));
   };
 
   const handleUpdatePaywall = async (event, id) => {
     event.preventDefault();
+    const totalPercent = editDestinations.reduce(
+      (sum, destination) => sum + destination.percentage,
+      0,
+    );
+    if (totalPercent !== 100) {
+      alert('Destination percentages must sum to 100%.');
+      return;
+    }
+    const selectedDestinations = editDestinations.filter(
+      (destination) => destination.percentage > 0,
+    );
+    if (
+      selectedDestinations.some(
+        (destination) => !destination.principal.trim(),
+      )
+    ) {
+      alert('Please provide a principal for every destination with a percentage.');
+      return;
+    }
     const totalSeconds =
       parseDurationPart(editSessionDays) * 86400 +
       parseDurationPart(editSessionHours) * 3600 +
@@ -163,10 +221,15 @@ function App() {
     const actor = await getActor(authClient);
     const updates = {
       price_e8s: [toE8s(editPriceIcp)],
-      destination: [Principal.fromText(editDestination)],
       target_canister: [Principal.fromText(editTargetCanister)],
       session_duration_ns: [sessionDurationNs],
-      convertToCycles: [editConvertToCycles],
+      destinations: [
+        selectedDestinations.map((destination) => ({
+          destination: Principal.fromText(destination.principal),
+          percentage: BigInt(destination.percentage),
+          convertToCycles: destination.convertToCycles,
+        })),
+      ],
     };
     await actor.updatePaywall(id, updates);
     setEditingId(null);
@@ -220,19 +283,85 @@ function App() {
                   required
                 />
               </label>
-              <label>
-                Destination principal
+              <div className="form-field">
+                <span>Destination splits</span>
                 <span className="hint">
-                  This is your wallet principal where paywall payments are sent.
+                  Define up to three destinations. Percentages must total 100%
+                  of the payment after the fee.
                 </span>
-                <input
-                  type="text"
-                  value={destination}
-                  onChange={(event) => setDestination(event.target.value)}
-                  placeholder="aaaaa-aa"
-                  required
-                />
-              </label>
+                <div className="stack">
+                  {destinations.map((destination, index) => (
+                    <div
+                      key={`destination-${index}`}
+                      className="stack"
+                      style={{
+                        border: '1px solid #1f2937',
+                        borderRadius: '12px',
+                        padding: '12px',
+                      }}
+                    >
+                      <strong>Destination {index + 1}</strong>
+                      <label>
+                        Principal
+                        <input
+                          type="text"
+                          value={destination.principal}
+                          onChange={(event) => {
+                            const next = [...destinations];
+                            next[index] = {
+                              ...next[index],
+                              principal: event.target.value,
+                            };
+                            setDestinations(next);
+                          }}
+                          placeholder="aaaaa-aa"
+                          required={destination.percentage > 0}
+                        />
+                      </label>
+                      <label>
+                        Percentage (0-100)
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          value={destination.percentage}
+                          onChange={(event) => {
+                            const next = [...destinations];
+                            next[index] = {
+                              ...next[index],
+                              percentage:
+                                Number.parseInt(event.target.value, 10) || 0,
+                            };
+                            setDestinations(next);
+                          }}
+                          required
+                        />
+                      </label>
+                      <label>
+                        Convert to cycles
+                        <input
+                          type="checkbox"
+                          checked={destination.convertToCycles}
+                          onChange={(event) => {
+                            const next = [...destinations];
+                            next[index] = {
+                              ...next[index],
+                              convertToCycles: event.target.checked,
+                            };
+                            setDestinations(next);
+                          }}
+                        />
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <p className="hint">
+                A fee of max(1% of price, 0.0001 ICP) is deducted from every
+                payment and sent to {FEE_ACCOUNT_IDENTIFIER}. Your percentages
+                apply to the remaining amount. Ensure all destinations can
+                accept ICP or cycles.
+              </p>
               <label>
                 Target canister principal
                 <span className="hint">
@@ -302,14 +431,6 @@ function App() {
                   </label>
                 </div>
               </div>
-              <label>
-                Convert payments to cycles before sending?
-                <input
-                  type="checkbox"
-                  checked={convertToCycles}
-                  onChange={(event) => setConvertToCycles(event.target.checked)}
-                />
-              </label>
               <p className="hint">
                 Transfers should include the standard ledger fee of{' '}
                 {Number(LEDGER_FEE_E8S) / 100_000_000} ICP.
@@ -371,9 +492,17 @@ function App() {
                         <strong>Price:</strong> {price.toFixed(4)} ICP
                       </p>
                       <p>
-                        <strong>Destination:</strong>{' '}
-                        {config.destination.toText()}
+                        <strong>Destinations:</strong>
                       </p>
+                      <ul className="list">
+                        {config.destinations.map((destination, index) => (
+                          <li key={`${id}-destination-${index}`}>
+                            {destination.destination.toText()} (
+                            {Number(destination.percentage)}%,{' '}
+                            {destination.convertToCycles ? 'Cycles' : 'ICP'})
+                          </li>
+                        ))}
+                      </ul>
                       <p>
                         <strong>Target Canister:</strong>{' '}
                         {config.target_canister.toText()}
@@ -383,8 +512,8 @@ function App() {
                         {minutes}m {seconds}s
                       </p>
                       <p>
-                        <strong>Convert to Cycles:</strong>{' '}
-                        {config.convertToCycles ? 'Yes' : 'No'}
+                        <strong>Split rule:</strong> Percentages apply after the
+                        paywall fee.
                       </p>
                       <button type="button" onClick={() => startEdit(id, config)}>
                         Edit
@@ -403,17 +532,6 @@ function App() {
                               value={editPriceIcp}
                               onChange={(event) =>
                                 setEditPriceIcp(event.target.value)
-                              }
-                              required
-                            />
-                          </label>
-                          <label>
-                            Edit Destination
-                            <input
-                              type="text"
-                              value={editDestination}
-                              onChange={(event) =>
-                                setEditDestination(event.target.value)
                               }
                               required
                             />
@@ -492,16 +610,82 @@ function App() {
                               </label>
                             </div>
                           </div>
-                          <label>
-                            Edit Convert to Cycles
-                            <input
-                              type="checkbox"
-                              checked={editConvertToCycles}
-                              onChange={(event) =>
-                                setEditConvertToCycles(event.target.checked)
-                              }
-                            />
-                          </label>
+                          <div className="form-field">
+                            <span>Edit destinations</span>
+                            <span className="hint">
+                              Percentages must total 100% after the fee is
+                              deducted.
+                            </span>
+                            <div className="stack">
+                              {editDestinations.map((destination, index) => (
+                                <div
+                                  key={`edit-destination-${index}`}
+                                  className="stack"
+                                  style={{
+                                    border: '1px solid #1f2937',
+                                    borderRadius: '12px',
+                                    padding: '12px',
+                                  }}
+                                >
+                                  <strong>Destination {index + 1}</strong>
+                                  <label>
+                                    Principal
+                                    <input
+                                      type="text"
+                                      value={destination.principal}
+                                      onChange={(event) => {
+                                        const next = [...editDestinations];
+                                        next[index] = {
+                                          ...next[index],
+                                          principal: event.target.value,
+                                        };
+                                        setEditDestinations(next);
+                                      }}
+                                      placeholder="aaaaa-aa"
+                                      required={destination.percentage > 0}
+                                    />
+                                  </label>
+                                  <label>
+                                    Percentage (0-100)
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      max="100"
+                                      value={destination.percentage}
+                                      onChange={(event) => {
+                                        const next = [...editDestinations];
+                                        next[index] = {
+                                          ...next[index],
+                                          percentage:
+                                            Number.parseInt(
+                                              event.target.value,
+                                              10,
+                                            ) || 0,
+                                        };
+                                        setEditDestinations(next);
+                                      }}
+                                      required
+                                    />
+                                  </label>
+                                  <label>
+                                    Convert to cycles
+                                    <input
+                                      type="checkbox"
+                                      checked={destination.convertToCycles}
+                                      onChange={(event) => {
+                                        const next = [...editDestinations];
+                                        next[index] = {
+                                          ...next[index],
+                                          convertToCycles: event.target.checked,
+                                        };
+                                        setEditDestinations(next);
+                                      }}
+                                    />
+                                  </label>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
                           <div className="row">
                             <button type="submit">Update paywall</button>
                             <button

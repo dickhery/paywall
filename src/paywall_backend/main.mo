@@ -1,5 +1,6 @@
 import Array "mo:base/Array";
 import Blob "mo:base/Blob";
+import Char "mo:base/Char";
 import Debug "mo:base/Debug";
 import HashMap "mo:base/HashMap";
 import Int "mo:base/Int";
@@ -43,24 +44,55 @@ persistent actor Paywall {
     #Err : TransferError;
   };
 
+  type Tokens = { e8s : Nat64 };
+
+  type LegacyTransferArgs = {
+    to : Blob;
+    fee : Tokens;
+    memo : Nat64;
+    from_subaccount : ?Blob;
+    created_at_time : ?Nat64;
+    amount : Tokens;
+  };
+
+  type LegacyTransferError = {
+    #BadFee : { expected_fee : Tokens };
+    #InsufficientFunds : { balance : Tokens };
+    #TxTooOld : { allowed_window_nanos : Nat64 };
+    #TxDuplicate : { duplicate_of : Nat64 };
+    #TxCreatedInFuture;
+    #TemporarilyUnavailable;
+    #GenericError : { error_code : Nat64; message : Text };
+  };
+
+  type LegacyTransferResult = {
+    #Ok : Nat64;
+    #Err : LegacyTransferError;
+  };
+
   type Ledger = actor {
     icrc1_balance_of : shared query Account -> async Nat;
     icrc1_transfer : shared TransferArgs -> async TransferResult;
+    transfer : shared LegacyTransferArgs -> async LegacyTransferResult;
+  };
+
+  type Destination = {
+    destination : Principal;
+    percentage : Nat;
+    convertToCycles : Bool;
   };
 
   type PaywallConfig = {
     price_e8s : Nat;
-    destination : Principal;
     target_canister : Principal;
     session_duration_ns : Nat;
-    convertToCycles : Bool;
+    destinations : [Destination];
   };
   type PaywallUpdate = {
     price_e8s : ?Nat;
-    destination : ?Principal;
     target_canister : ?Principal;
     session_duration_ns : ?Nat;
-    convertToCycles : ?Bool;
+    destinations : ?[Destination];
   };
 
   type NotifyMintCyclesArgs = {
@@ -117,6 +149,9 @@ persistent actor Paywall {
   transient let ledger : Ledger = actor ("ryjl3-tyaaa-aaaaa-aaaba-cai");
   transient let cmc : CyclesMintingCanister = actor ("rkp4c-7iaaa-aaaaa-aaaca-cai");
   let ledgerFee : Nat = 10_000;
+  let feeAccountIdentifierHex : Text =
+    "2a4abcd2278509654f9a26b885ecb49b8619bffe58a6acb2e3a5e3c7fb96020d";
+  let feeAccountIdentifier : Blob = Blob.fromArray(hexToBytes(feeAccountIdentifierHex));
 
   transient var paywallConfigs = HashMap.HashMap<Text, PaywallConfig>(0, Text.equal, Text.hash);
   transient var paidStatuses = HashMap.HashMap<Principal, HashMap.HashMap<Text, Int>>(
@@ -220,6 +255,36 @@ persistent actor Paywall {
       index += 1;
     };
     Blob.fromArray(Array.freeze(output));
+  };
+
+  private func hexToNibble(char : Char) : ?Nat8 {
+    let code = Char.toNat32(char);
+    if (code >= 48 and code <= 57) {
+      return ?Nat8.fromNat(Nat32.toNat(code - 48));
+    };
+    if (code >= 65 and code <= 70) {
+      return ?Nat8.fromNat(Nat32.toNat(code - 55));
+    };
+    if (code >= 97 and code <= 102) {
+      return ?Nat8.fromNat(Nat32.toNat(code - 87));
+    };
+    null;
+  };
+
+  private func hexToBytes(hex : Text) : [Nat8] {
+    let chars = Iter.toArray(Text.toIter(hex));
+    if (chars.size() % 2 != 0) {
+      Debug.trap("Invalid hex length");
+    };
+    let bytes = Array.init<Nat8>(chars.size() / 2, 0);
+    var index = 0;
+    while (index < chars.size()) {
+      let ?high = hexToNibble(chars[index]) else Debug.trap("Invalid hex character");
+      let ?low = hexToNibble(chars[index + 1]) else Debug.trap("Invalid hex character");
+      bytes[index / 2] := Nat8.fromNat(Nat8.toNat(high) * 16 + Nat8.toNat(low));
+      index += 2;
+    };
+    Array.freeze(bytes);
   };
 
   private func buildMintSubaccount(destination : Principal) : ?Blob {
@@ -378,9 +443,48 @@ persistent actor Paywall {
     };
   };
 
+  private func sendFee(amount : Nat, from_subaccount : ?Blob) : async PaymentResult {
+    let transferResult = await ledger.transfer({
+      to = feeAccountIdentifier;
+      amount = { e8s = Nat64.fromNat(amount) };
+      fee = { e8s = Nat64.fromNat(ledgerFee) };
+      memo = 0;
+      from_subaccount;
+      created_at_time = null;
+    });
+    switch (transferResult) {
+      case (#Err(err)) {
+        Debug.print("Fee transfer failed: " # debug_show(err));
+        #Err("Fee transfer failed: " # debug_show(err));
+      };
+      case (#Ok(_)) #Ok;
+    };
+  };
+
+  private func validateDestinations(destinations : [Destination]) : () {
+    if (destinations.size() == 0) {
+      Debug.trap("At least one destination is required");
+    };
+    if (destinations.size() > 3) {
+      Debug.trap("Maximum 3 destinations allowed");
+    };
+    var percentSum : Nat = 0;
+    for (destination in destinations.vals()) {
+      percentSum += destination.percentage;
+    };
+    if (percentSum != 100) {
+      Debug.trap("Destination percentages must sum to 100");
+    };
+  };
+
+  private func calculateFee(price_e8s : Nat) : Nat {
+    Nat.max(price_e8s / 100, ledgerFee);
+  };
+
   public shared(msg) func createPaywall(config : PaywallConfig) : async Text {
     let id = "pw-" # Nat.toText(nextPaywallId);
     nextPaywallId += 1;
+    validateDestinations(config.destinations);
     paywallConfigs.put(id, config);
     let owner = msg.caller;
     let currentIds = switch (ownedPaywalls.get(owner)) {
@@ -437,27 +541,58 @@ persistent actor Paywall {
       subaccount = ?userSubaccount;
     });
 
-    if (balance < config.price_e8s + ledgerFee) {
+    let fee_e8s = calculateFee(config.price_e8s);
+    if (config.price_e8s < fee_e8s) {
+      return #Err("Paywall price is too low to cover the fee.");
+    };
+    let transferCount = config.destinations.size() + 1;
+    let requiredBalance = config.price_e8s + (ledgerFee * transferCount);
+    if (balance < requiredBalance) {
       return #Err(
         "Insufficient balance: have " # Nat.toText(balance) # ", need " #
-        Nat.toText(config.price_e8s + ledgerFee),
+        Nat.toText(requiredBalance),
       );
     };
 
-    let paidResult = await sendPayment(
-      config.price_e8s,
-      ?userSubaccount,
-      config.destination,
-      config.convertToCycles,
-    );
-    switch (paidResult) {
+    let feeResult = await sendFee(fee_e8s, ?userSubaccount);
+    switch (feeResult) {
       case (#Err(message)) {
         Debug.print(
-          "Payment failed for " # Principal.toText(caller) # ": " # message,
+          "Fee transfer failed for " # Principal.toText(caller) # ": " # message,
         );
         return #Err(message);
       };
       case (#Ok) {};
+    };
+
+    let userAmount = config.price_e8s - fee_e8s;
+    var remaining = userAmount;
+    let lastIndex = config.destinations.size() - 1;
+    var index : Nat = 0;
+    for (destination in config.destinations.vals()) {
+      var amount = (userAmount * destination.percentage) / 100;
+      if (index == lastIndex) {
+        amount += remaining - amount;
+      };
+      remaining -= amount;
+      if (amount > 0) {
+        let paidResult = await sendPayment(
+          amount,
+          ?userSubaccount,
+          destination.destination,
+          destination.convertToCycles,
+        );
+        switch (paidResult) {
+          case (#Err(message)) {
+            Debug.print(
+              "Payment failed for " # Principal.toText(caller) # ": " # message,
+            );
+            return #Err(message);
+          };
+          case (#Ok) {};
+        };
+      };
+      index += 1;
     };
 
     let expiry = Time.now() + config.session_duration_ns;
@@ -482,28 +617,60 @@ persistent actor Paywall {
       subaccount = ?subaccount;
     });
 
-    if (balance < config.price_e8s + ledgerFee) {
+    let fee_e8s = calculateFee(config.price_e8s);
+    if (config.price_e8s < fee_e8s) {
+      return #Err("Paywall price is too low to cover the fee.");
+    };
+    let transferCount = config.destinations.size() + 1;
+    let requiredBalance = config.price_e8s + (ledgerFee * transferCount);
+    if (balance < requiredBalance) {
       return #Err(
         "Insufficient balance: have " # Nat.toText(balance) # ", need " #
-        Nat.toText(config.price_e8s + ledgerFee),
+        Nat.toText(requiredBalance),
       );
     };
 
-    let paidResult = await sendPayment(
-      config.price_e8s,
-      ?subaccount,
-      config.destination,
-      config.convertToCycles,
-    );
-    switch (paidResult) {
+    let feeResult = await sendFee(fee_e8s, ?subaccount);
+    switch (feeResult) {
       case (#Err(message)) {
         Debug.print(
-          "Verification payment failed for " # Principal.toText(caller) # ": " #
+          "Fee transfer failed for " # Principal.toText(caller) # ": " #
           message,
         );
         return #Err(message);
       };
       case (#Ok) {};
+    };
+
+    let userAmount = config.price_e8s - fee_e8s;
+    var remaining = userAmount;
+    let lastIndex = config.destinations.size() - 1;
+    var index : Nat = 0;
+    for (destination in config.destinations.vals()) {
+      var amount = (userAmount * destination.percentage) / 100;
+      if (index == lastIndex) {
+        amount += remaining - amount;
+      };
+      remaining -= amount;
+      if (amount > 0) {
+        let paidResult = await sendPayment(
+          amount,
+          ?subaccount,
+          destination.destination,
+          destination.convertToCycles,
+        );
+        switch (paidResult) {
+          case (#Err(message)) {
+            Debug.print(
+              "Verification payment failed for " # Principal.toText(caller) # ": " #
+              message,
+            );
+            return #Err(message);
+          };
+          case (#Ok) {};
+        };
+      };
+      index += 1;
     };
 
     let expiry = Time.now() + config.session_duration_ns;
@@ -549,13 +716,17 @@ persistent actor Paywall {
       return;
     };
 
+    let newDestinations = switch (updates.destinations) {
+      case null config.destinations;
+      case (?values) {
+        validateDestinations(values);
+        values;
+      };
+    };
+
     let newConfig = {
       price_e8s = switch (updates.price_e8s) {
         case null config.price_e8s;
-        case (?value) value;
-      };
-      destination = switch (updates.destination) {
-        case null config.destination;
         case (?value) value;
       };
       target_canister = switch (updates.target_canister) {
@@ -566,10 +737,7 @@ persistent actor Paywall {
         case null config.session_duration_ns;
         case (?value) value;
       };
-      convertToCycles = switch (updates.convertToCycles) {
-        case null config.convertToCycles;
-        case (?value) value;
-      };
+      destinations = newDestinations;
     };
     paywallConfigs.put(id, newConfig);
   };

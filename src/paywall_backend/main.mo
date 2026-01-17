@@ -151,6 +151,35 @@ persistent actor Paywall {
   let ledgerFee : Nat = 10_000;
   let feeAccountIdentifierHex : Text =
     "2a4abcd2278509654f9a26b885ecb49b8619bffe58a6acb2e3a5e3c7fb96020d";
+  private func hexToNibble(char : Char) : ?Nat8 {
+    let code = Char.toNat32(char);
+    if (code >= 48 and code <= 57) {
+      return ?Nat8.fromNat(Nat32.toNat(code - 48));
+    };
+    if (code >= 65 and code <= 70) {
+      return ?Nat8.fromNat(Nat32.toNat(code - 55));
+    };
+    if (code >= 97 and code <= 102) {
+      return ?Nat8.fromNat(Nat32.toNat(code - 87));
+    };
+    null;
+  };
+
+  private func hexToBytes(hex : Text) : [Nat8] {
+    let chars = Iter.toArray(Text.toIter(hex));
+    if (chars.size() % 2 != 0) {
+      Debug.trap("Invalid hex length");
+    };
+    let bytes = Array.init<Nat8>(chars.size() / 2, 0);
+    var index = 0;
+    while (index < chars.size()) {
+      let ?high = hexToNibble(chars[index]) else Debug.trap("Invalid hex character");
+      let ?low = hexToNibble(chars[index + 1]) else Debug.trap("Invalid hex character");
+      bytes[index / 2] := Nat8.fromNat(Nat8.toNat(high) * 16 + Nat8.toNat(low));
+      index += 2;
+    };
+    Array.freeze(bytes);
+  };
   let feeAccountIdentifier : Blob = Blob.fromArray(hexToBytes(feeAccountIdentifierHex));
 
   transient var paywallConfigs = HashMap.HashMap<Text, PaywallConfig>(0, Text.equal, Text.hash);
@@ -255,36 +284,6 @@ persistent actor Paywall {
       index += 1;
     };
     Blob.fromArray(Array.freeze(output));
-  };
-
-  private func hexToNibble(char : Char) : ?Nat8 {
-    let code = Char.toNat32(char);
-    if (code >= 48 and code <= 57) {
-      return ?Nat8.fromNat(Nat32.toNat(code - 48));
-    };
-    if (code >= 65 and code <= 70) {
-      return ?Nat8.fromNat(Nat32.toNat(code - 55));
-    };
-    if (code >= 97 and code <= 102) {
-      return ?Nat8.fromNat(Nat32.toNat(code - 87));
-    };
-    null;
-  };
-
-  private func hexToBytes(hex : Text) : [Nat8] {
-    let chars = Iter.toArray(Text.toIter(hex));
-    if (chars.size() % 2 != 0) {
-      Debug.trap("Invalid hex length");
-    };
-    let bytes = Array.init<Nat8>(chars.size() / 2, 0);
-    var index = 0;
-    while (index < chars.size()) {
-      let ?high = hexToNibble(chars[index]) else Debug.trap("Invalid hex character");
-      let ?low = hexToNibble(chars[index + 1]) else Debug.trap("Invalid hex character");
-      bytes[index / 2] := Nat8.fromNat(Nat8.toNat(high) * 16 + Nat8.toNat(low));
-      index += 2;
-    };
-    Array.freeze(bytes);
   };
 
   private func buildMintSubaccount(destination : Principal) : ?Blob {
@@ -570,11 +569,14 @@ persistent actor Paywall {
     let lastIndex = config.destinations.size() - 1;
     var index : Nat = 0;
     for (destination in config.destinations.vals()) {
-      var amount = (userAmount * destination.percentage) / 100;
-      if (index == lastIndex) {
-        amount += remaining - amount;
+      let amount = if (index == lastIndex) {
+        remaining;
+      } else {
+        (userAmount * destination.percentage) / 100;
       };
-      remaining -= amount;
+      if (index != lastIndex) {
+        remaining -= amount;
+      };
       if (amount > 0) {
         let paidResult = await sendPayment(
           amount,
@@ -647,11 +649,14 @@ persistent actor Paywall {
     let lastIndex = config.destinations.size() - 1;
     var index : Nat = 0;
     for (destination in config.destinations.vals()) {
-      var amount = (userAmount * destination.percentage) / 100;
-      if (index == lastIndex) {
-        amount += remaining - amount;
+      let amount = if (index == lastIndex) {
+        remaining;
+      } else {
+        (userAmount * destination.percentage) / 100;
       };
-      remaining -= amount;
+      if (index != lastIndex) {
+        remaining -= amount;
+      };
       if (amount > 0) {
         let paidResult = await sendPayment(
           amount,

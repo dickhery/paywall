@@ -32,6 +32,8 @@ function App() {
     { principal: '', percentage: 15, convertToCycles: true },
     { principal: '', percentage: 5, convertToCycles: true },
   ]);
+  const [loginPromptText, setLoginPromptText] = useState('');
+  const [paymentPromptText, setPaymentPromptText] = useState('');
 
   const [paywallId, setPaywallId] = useState('');
   const [ownedPaywalls, setOwnedPaywalls] = useState([]);
@@ -44,6 +46,8 @@ function App() {
   const [editSessionMinutes, setEditSessionMinutes] = useState('');
   const [editSessionSeconds, setEditSessionSeconds] = useState('');
   const [editDestinations, setEditDestinations] = useState([]);
+  const [editLoginPromptText, setEditLoginPromptText] = useState('');
+  const [editPaymentPromptText, setEditPaymentPromptText] = useState('');
 
   const identityProvider = useMemo(() => {
     if (process.env.DFX_NETWORK === 'ic') {
@@ -127,6 +131,8 @@ function App() {
     const sessionDurationNs = BigInt(totalSeconds) * 1_000_000_000n;
 
     const actor = await getActor(authClient);
+    const trimmedLoginPrompt = loginPromptText.trim();
+    const trimmedPaymentPrompt = paymentPromptText.trim();
     const config = {
       price_e8s: toE8s(priceIcp),
       target_canister: Principal.fromText(targetCanister),
@@ -136,6 +142,8 @@ function App() {
         percentage: BigInt(destination.percentage),
         convertToCycles: destination.convertToCycles,
       })),
+      loginPromptText: trimmedLoginPrompt ? [trimmedLoginPrompt] : [],
+      paymentPromptText: trimmedPaymentPrompt ? [trimmedPaymentPrompt] : [],
     };
 
     const createdId = await actor.createPaywall(config);
@@ -189,6 +197,8 @@ function App() {
       });
     }
     setEditDestinations(mappedDestinations.slice(0, 3));
+    setEditLoginPromptText(config.loginPromptText?.[0] || '');
+    setEditPaymentPromptText(config.paymentPromptText?.[0] || '');
   };
 
   const handleUpdatePaywall = async (event, id) => {
@@ -219,6 +229,8 @@ function App() {
       parseDurationPart(editSessionSeconds);
     const sessionDurationNs = BigInt(totalSeconds) * 1_000_000_000n;
     const actor = await getActor(authClient);
+    const trimmedLoginPrompt = editLoginPromptText.trim();
+    const trimmedPaymentPrompt = editPaymentPromptText.trim();
     const updates = {
       price_e8s: [toE8s(editPriceIcp)],
       target_canister: [Principal.fromText(editTargetCanister)],
@@ -230,6 +242,8 @@ function App() {
           convertToCycles: destination.convertToCycles,
         })),
       ],
+      loginPromptText: trimmedLoginPrompt ? [trimmedLoginPrompt] : [],
+      paymentPromptText: trimmedPaymentPrompt ? [trimmedPaymentPrompt] : [],
     };
     await actor.updatePaywall(id, updates);
     setEditingId(null);
@@ -431,6 +445,34 @@ function App() {
                   </label>
                 </div>
               </div>
+              <label>
+                Login prompt text (optional)
+                <span className="hint">
+                  Text shown before a user logs in, for example “Welcome to my
+                  blog! Log in to access my content!”
+                </span>
+                <textarea
+                  value={loginPromptText}
+                  onChange={(event) => setLoginPromptText(event.target.value)}
+                  placeholder="Enter custom login prompt text"
+                  rows={3}
+                />
+              </label>
+              <label>
+                Payment prompt text (optional)
+                <span className="hint">
+                  Text shown on the payment screen, for example “This game
+                  requires a payment every 7 days to gain access.”
+                </span>
+                <textarea
+                  value={paymentPromptText}
+                  onChange={(event) =>
+                    setPaymentPromptText(event.target.value)
+                  }
+                  placeholder="Enter custom payment prompt text"
+                  rows={3}
+                />
+              </label>
               <p className="hint">
                 Transfers should include the standard ledger fee of{' '}
                 {Number(LEDGER_FEE_E8S) / 100_000_000} ICP.
@@ -686,6 +728,28 @@ function App() {
                               ))}
                             </div>
                           </div>
+                          <label>
+                            Edit login prompt text (optional)
+                            <textarea
+                              value={editLoginPromptText}
+                              onChange={(event) =>
+                                setEditLoginPromptText(event.target.value)
+                              }
+                              placeholder="Enter custom login prompt text"
+                              rows={3}
+                            />
+                          </label>
+                          <label>
+                            Edit payment prompt text (optional)
+                            <textarea
+                              value={editPaymentPromptText}
+                              onChange={(event) =>
+                                setEditPaymentPromptText(event.target.value)
+                              }
+                              placeholder="Enter custom payment prompt text"
+                              rows={3}
+                            />
+                          </label>
                           <div className="row">
                             <button type="submit">Update paywall</button>
                             <button

@@ -8,8 +8,6 @@ import { Principal } from '@dfinity/principal';
 const II_URL = 'https://identity.ic0.app/#authorize';
 const DEFAULT_LEDGER_ID = 'ryjl3-tyaaa-aaaaa-aaaba-cai';
 const LEDGER_FEE_E8S = 10000n;
-const FEE_ACCOUNT_IDENTIFIER =
-  '2a4abcd2278509654f9a26b885ecb49b8619bffe58a6acb2e3a5e3c7fb96020d';
 
 if (!globalThis.Buffer) {
   globalThis.Buffer = Buffer;
@@ -76,6 +74,8 @@ const idlFactory = ({ IDL }) => {
         convertToCycles: IDL.Bool,
       }),
     ),
+    login_prompt_text: IDL.Opt(IDL.Text),
+    payment_prompt_text: IDL.Opt(IDL.Text),
   });
   const Account = IDL.Record({
     owner: IDL.Principal,
@@ -93,7 +93,7 @@ const idlFactory = ({ IDL }) => {
   });
 };
 
-const buildOverlay = (price, onLogin) => {
+const buildOverlay = (onLogin) => {
   const overlay = document.createElement('div');
   overlay.style.cssText =
     'position:fixed;inset:0;background:rgba(6,9,20,0.88);color:#fff;z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;';
@@ -103,7 +103,7 @@ const buildOverlay = (price, onLogin) => {
   panel.id = 'paywall-panel';
   panel.innerHTML = `
     <h2 style="margin:0 0 12px;font-size:24px;">Payment required</h2>
-    <p style="margin:0 0 16px;font-size:16px;">Pay ${price} ICP to continue. A fee of max(1% of price, 0.0001 ICP) is included and sent to ${FEE_ACCOUNT_IDENTIFIER}.</p>
+    <p style="margin:0 0 16px;font-size:16px;" id="paywall-login-prompt">Log in to check access.</p>
     <button id="paywall-login" style="background:#4f46e5;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:16px;cursor:pointer;margin-bottom:12px;">Log in to check access</button>
     <div id="paywall-details" style="display:none;margin-top:16px;text-align:left;font-size:14px;"></div>
     <div id="paywall-loading" style="display:none;margin-top:16px;color:#9ca3af;">Loading...</div>
@@ -159,7 +159,12 @@ const run = async () => {
 
     const priceIcp = Number(config.price_e8s) / 100_000_000;
     if (!Number.isFinite(priceIcp)) return;
-    const overlay = buildOverlay(priceIcp.toFixed(4), async () => {
+    const loginPromptText =
+      config.login_prompt_text?.[0]?.trim() || 'Log in to check access.';
+    const paymentPromptText =
+      config.payment_prompt_text?.[0]?.trim() ||
+      'Complete payment to continue.';
+    const overlay = buildOverlay(async () => {
       const loading = overlay.querySelector('#paywall-loading');
       const errorMessage = overlay.querySelector('#paywall-error');
       loading.style.display = 'block';
@@ -218,13 +223,25 @@ const run = async () => {
         details.style.display = 'block';
         details.innerHTML = '';
 
+        const priceLine = document.createElement('p');
+        priceLine.style.margin = '0 0 8px';
+        priceLine.style.fontSize = '18px';
+        priceLine.style.fontWeight = '600';
+        priceLine.textContent = `Pay ${priceIcp.toFixed(4)} ICP to continue.`;
+        details.appendChild(priceLine);
+
+        const paymentPromptLine = document.createElement('p');
+        paymentPromptLine.style.margin = '0 0 12px';
+        paymentPromptLine.textContent = paymentPromptText;
+        details.appendChild(paymentPromptLine);
+
         const balanceLine = document.createElement('p');
         balanceLine.style.margin = '0 0 12px';
         const transferCount = BigInt(config.destinations.length + 1);
         const requiredBalanceE8s =
           config.price_e8s + LEDGER_FEE_E8S * transferCount;
         const requiredBalanceIcp = Number(requiredBalanceE8s) / 100_000_000;
-        balanceLine.textContent = `Your paywall balance: ${userBalanceIcp.toFixed(8)} ICP (covers ${requiredBalanceIcp.toFixed(8)} ICP including ledger fees)`;
+        balanceLine.textContent = `Your paywall balance: ${userBalanceIcp.toFixed(8)} ICP`;
         details.appendChild(balanceLine);
 
         if (userBalanceE8s >= requiredBalanceE8s) {
@@ -234,7 +251,7 @@ const run = async () => {
             'background:#16a34a;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:14px;cursor:pointer;margin-bottom:12px;';
           payFromBalanceButton.addEventListener('click', async () => {
             const duration = formatDuration(config.session_duration_ns);
-            const confirmMessage = `Are you sure you want to pay ${priceIcp.toFixed(8)} ICP plus network fees (includes the paywall fee and ledger fees)? This will unlock the paywall for ${duration}.`;
+            const confirmMessage = `Are you sure you want to pay ${priceIcp.toFixed(4)} ICP? This will unlock the paywall for ${duration}.`;
             if (!confirm(confirmMessage)) {
               return;
             }
@@ -339,7 +356,7 @@ const run = async () => {
           note.style.margin = '0 0 12px';
           note.style.fontStyle = 'italic';
           note.textContent =
-            `Deposit at least ${requiredBalanceIcp.toFixed(8)} ICP (includes the paywall fee and ${config.destinations.length + 1} ledger transfers at 0.0001 ICP each). Copy this Account Identifier into your wallet (e.g., NNS dapp) to send ICP. After transfer, refresh or re-login to see updated balance.`;
+            `Deposit at least ${requiredBalanceIcp.toFixed(8)} ICP to cover the payment and ledger transfers. Copy this Account Identifier into your wallet (e.g., NNS dapp) to send ICP. After transfer, refresh or re-login to see updated balance.`;
           details.appendChild(note);
         }
 
@@ -433,6 +450,7 @@ const run = async () => {
       }
     });
 
+    overlay.querySelector('#paywall-login-prompt').textContent = loginPromptText;
     document.body.appendChild(overlay);
   } catch (error) {
     console.error('Paywall script error:', error);

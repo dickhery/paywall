@@ -16,6 +16,8 @@ const toE8s = (icpValue) => {
   return BigInt(Math.round(parsed * 100_000_000));
 };
 
+const toOptionalText = (value) => [value.trim()];
+
 function App() {
   const [authClient, setAuthClient] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -27,6 +29,8 @@ function App() {
   const [sessionHours, setSessionHours] = useState('1');
   const [sessionMinutes, setSessionMinutes] = useState('0');
   const [sessionSeconds, setSessionSeconds] = useState('0');
+  const [loginPromptText, setLoginPromptText] = useState('');
+  const [paymentPromptText, setPaymentPromptText] = useState('');
   const [destinations, setDestinations] = useState([
     { principal: '', percentage: 80, convertToCycles: false },
     { principal: '', percentage: 15, convertToCycles: true },
@@ -44,6 +48,8 @@ function App() {
   const [editSessionMinutes, setEditSessionMinutes] = useState('');
   const [editSessionSeconds, setEditSessionSeconds] = useState('');
   const [editDestinations, setEditDestinations] = useState([]);
+  const [editLoginPromptText, setEditLoginPromptText] = useState('');
+  const [editPaymentPromptText, setEditPaymentPromptText] = useState('');
 
   const identityProvider = useMemo(() => {
     if (process.env.DFX_NETWORK === 'ic') {
@@ -136,6 +142,8 @@ function App() {
         percentage: BigInt(destination.percentage),
         convertToCycles: destination.convertToCycles,
       })),
+      login_prompt_text: toOptionalText(loginPromptText),
+      payment_prompt_text: toOptionalText(paymentPromptText),
     };
 
     const createdId = await actor.createPaywall(config);
@@ -176,6 +184,8 @@ function App() {
       Math.floor(((totalSeconds % 86400) % 3600) / 60).toString(),
     );
     setEditSessionSeconds(((totalSeconds % 86400) % 60).toString());
+    setEditLoginPromptText(config.login_prompt_text?.[0] || '');
+    setEditPaymentPromptText(config.payment_prompt_text?.[0] || '');
     const mappedDestinations = config.destinations.map((destination) => ({
       principal: destination.destination.toText(),
       percentage: Number(destination.percentage),
@@ -230,6 +240,8 @@ function App() {
           convertToCycles: destination.convertToCycles,
         })),
       ],
+      login_prompt_text: toOptionalText(editLoginPromptText),
+      payment_prompt_text: toOptionalText(editPaymentPromptText),
     };
     await actor.updatePaywall(id, updates);
     setEditingId(null);
@@ -431,6 +443,34 @@ function App() {
                   </label>
                 </div>
               </div>
+              <label>
+                Login prompt text (optional)
+                <span className="hint">
+                  Custom message shown before login, for example: &quot;Welcome
+                  to my blog! Log in to access my content.&quot;
+                </span>
+                <textarea
+                  value={loginPromptText}
+                  onChange={(event) => setLoginPromptText(event.target.value)}
+                  placeholder="Enter a custom login message"
+                  rows={3}
+                />
+              </label>
+              <label>
+                Payment prompt text (optional)
+                <span className="hint">
+                  Custom message shown when paying, for example: &quot;This game
+                  requires a payment every 7 days to gain access.&quot;
+                </span>
+                <textarea
+                  value={paymentPromptText}
+                  onChange={(event) =>
+                    setPaymentPromptText(event.target.value)
+                  }
+                  placeholder="Enter a custom payment message"
+                  rows={3}
+                />
+              </label>
               <p className="hint">
                 Transfers should include the standard ledger fee of{' '}
                 {Number(LEDGER_FEE_E8S) / 100_000_000} ICP.
@@ -686,6 +726,28 @@ function App() {
                               ))}
                             </div>
                           </div>
+                          <label>
+                            Edit login prompt text (optional)
+                            <textarea
+                              value={editLoginPromptText}
+                              onChange={(event) =>
+                                setEditLoginPromptText(event.target.value)
+                              }
+                              placeholder="Enter a custom login message"
+                              rows={3}
+                            />
+                          </label>
+                          <label>
+                            Edit payment prompt text (optional)
+                            <textarea
+                              value={editPaymentPromptText}
+                              onChange={(event) =>
+                                setEditPaymentPromptText(event.target.value)
+                              }
+                              placeholder="Enter a custom payment message"
+                              rows={3}
+                            />
+                          </label>
                           <div className="row">
                             <button type="submit">Update paywall</button>
                             <button

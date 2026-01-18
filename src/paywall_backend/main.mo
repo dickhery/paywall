@@ -87,12 +87,16 @@ persistent actor Paywall {
     target_canister : Principal;
     session_duration_ns : Nat;
     destinations : [Destination];
+    login_prompt_text : ?Text;
+    payment_prompt_text : ?Text;
   };
   type PaywallUpdate = {
     price_e8s : ?Nat;
     target_canister : ?Principal;
     session_duration_ns : ?Nat;
     destinations : ?[Destination];
+    login_prompt_text : ?Text;
+    payment_prompt_text : ?Text;
   };
 
   type NotifyMintCyclesArgs = {
@@ -743,6 +747,14 @@ persistent actor Paywall {
         case (?value) value;
       };
       destinations = newDestinations;
+      login_prompt_text = switch (updates.login_prompt_text) {
+        case null config.login_prompt_text;
+        case (?value) ?value;
+      };
+      payment_prompt_text = switch (updates.payment_prompt_text) {
+        case null config.payment_prompt_text;
+        case (?value) ?value;
+      };
     };
     paywallConfigs.put(id, newConfig);
   };

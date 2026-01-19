@@ -552,6 +552,25 @@ function App() {
                         {minutes}m {seconds}s
                       </p>
                       <p>
+                        <strong>Login Prompt:</strong>{' '}
+                        {config.login_prompt_text?.[0] || 'None set'}
+                      </p>
+                      <p>
+                        <strong>Payment Prompt:</strong>{' '}
+                        {config.payment_prompt_text?.[0] || 'None set'}
+                      </p>
+                      <p>
+                        <strong>Embed Script:</strong>
+                      </p>
+                      <code>
+                        {`<script type="module" data-paywall data-backend-id="${process.env.CANISTER_ID_PAYWALL_BACKEND}" src="https://${process.env.CANISTER_ID_PAYWALL_FRONTEND}.icp0.io/paywall.js?paywallId=${id}"></script>`}
+                      </code>
+                      <p className="hint">
+                        Set <span className="mono">data-backend-id</span> to your
+                        paywall backend canister ID when embedding on non-ICP
+                        sites.
+                      </p>
+                      <p>
                         <strong>Split rule:</strong> Percentages apply after the
                         paywall fee.
                       </p>

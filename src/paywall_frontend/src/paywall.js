@@ -224,8 +224,13 @@ const run = async () => {
         );
 
         const loginPrompt = overlay.querySelector('#paywall-login-prompt');
-        loginPrompt.textContent = '';
-        loginPrompt.style.display = 'none';
+        if (loginPrompt) {
+          loginPrompt.remove();
+        }
+        const loginButton = overlay.querySelector('#paywall-login');
+        if (loginButton) {
+          loginButton.remove();
+        }
 
         const details = overlay.querySelector('#paywall-details');
         details.style.display = 'block';
@@ -444,7 +449,6 @@ const run = async () => {
         });
         details.appendChild(withdrawButton);
 
-        overlay.querySelector('#paywall-login').style.display = 'none';
       } catch (error) {
         console.error('Error during login/access check:', error);
         errorMessage.textContent = 'An error occurred. Please try again.';

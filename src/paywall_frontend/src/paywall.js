@@ -157,8 +157,13 @@ const run = async () => {
     const config = configResponse?.[0];
     if (!config || typeof config.price_e8s === 'undefined') return;
 
-    const priceIcp = Number(config.price_e8s) / 100_000_000;
+    const priceE8s = BigInt(config.price_e8s);
+    const priceIcp = Number(priceE8s) / 100_000_000;
     if (!Number.isFinite(priceIcp)) return;
+    const transferCount = BigInt(config.destinations.length + 1);
+    const requiredBalanceE8s = priceE8s + LEDGER_FEE_E8S * transferCount;
+    const requiredBalanceIcp = Number(requiredBalanceE8s) / 100_000_000;
+    const totalCostLabel = requiredBalanceIcp.toFixed(8);
     const loginPromptText =
       config.login_prompt_text?.[0]?.trim() || 'Log in to check access.';
     const paymentPromptText =
@@ -240,7 +245,7 @@ const run = async () => {
         priceLine.style.margin = '0 0 8px';
         priceLine.style.fontSize = '18px';
         priceLine.style.fontWeight = '600';
-        priceLine.textContent = `Pay ${priceIcp.toFixed(4)} ICP to continue.`;
+        priceLine.textContent = `Pay ${totalCostLabel} ICP to continue (includes network fees).`;
         details.appendChild(priceLine);
 
         const paymentPromptLine = document.createElement('p');
@@ -250,10 +255,6 @@ const run = async () => {
 
         const balanceLine = document.createElement('p');
         balanceLine.style.margin = '0 0 12px';
-        const transferCount = BigInt(config.destinations.length + 1);
-        const requiredBalanceE8s =
-          config.price_e8s + LEDGER_FEE_E8S * transferCount;
-        const requiredBalanceIcp = Number(requiredBalanceE8s) / 100_000_000;
         balanceLine.textContent = `Your paywall balance: ${userBalanceIcp.toFixed(8)} ICP`;
         details.appendChild(balanceLine);
 
@@ -293,14 +294,14 @@ const run = async () => {
         accountInfo.appendChild(accountRow);
         details.appendChild(accountInfo);
 
-        if (userBalanceE8s >= requiredBalanceE8s) {
+        const buildPayFromBalanceButton = () => {
           const payFromBalanceButton = document.createElement('button');
           payFromBalanceButton.textContent = 'Pay from balance';
           payFromBalanceButton.style.cssText =
             'background:#16a34a;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:14px;cursor:pointer;margin-bottom:12px;';
           payFromBalanceButton.addEventListener('click', async () => {
             const duration = formatDuration(config.session_duration_ns);
-            const confirmMessage = `Are you sure you want to pay ${priceIcp.toFixed(4)} ICP? This will unlock the paywall for ${duration}.`;
+            const confirmMessage = `Are you sure you want to pay ${totalCostLabel} ICP (includes network fees)? This will unlock the paywall for ${duration}.`;
             if (!confirm(confirmMessage)) {
               return;
             }
@@ -359,15 +360,68 @@ const run = async () => {
               payFromBalanceButton.textContent = 'Pay from balance';
             }
           });
+          return payFromBalanceButton;
+        };
+
+        let payFromBalanceButton = null;
+        const showPayFromBalanceButton = () => {
+          if (payFromBalanceButton) return;
+          payFromBalanceButton = buildPayFromBalanceButton();
           details.appendChild(payFromBalanceButton);
-        } else {
-          const note = document.createElement('p');
+        };
+
+        let note = null;
+        const showDepositNote = () => {
+          if (note) return;
+          note = document.createElement('p');
           note.style.margin = '0 0 12px';
           note.style.fontStyle = 'italic';
           note.textContent =
-            `Deposit at least ${requiredBalanceIcp.toFixed(8)} ICP to cover the payment and ledger transfers. Use the Account ID above in your wallet (e.g., NNS dapp) to send ICP. After transfer, refresh or re-login to see updated balance.`;
+            `Deposit at least ${requiredBalanceIcp.toFixed(8)} ICP to cover the payment (including network fees) and ledger transfers. Use the Account ID above in your wallet (e.g., NNS dapp) to send ICP. After transfer, refresh or re-login to see updated balance.`;
           details.appendChild(note);
+        };
+
+        if (userBalanceE8s >= requiredBalanceE8s) {
+          showPayFromBalanceButton();
+        } else {
+          showDepositNote();
         }
+
+        const refreshButton = document.createElement('button');
+        refreshButton.type = 'button';
+        refreshButton.textContent = 'Refresh balance';
+        refreshButton.style.cssText =
+          'background:#3b82f6;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:14px;cursor:pointer;margin-bottom:12px;';
+        refreshButton.addEventListener('click', async () => {
+          refreshButton.disabled = true;
+          refreshButton.textContent = 'Refreshing...';
+          try {
+            const refreshedBalanceE8s = await ledger.accountBalance({
+              accountIdentifier,
+              certified: false,
+            });
+            userBalanceE8s = refreshedBalanceE8s;
+            const refreshedBalanceIcp = Number(userBalanceE8s) / 100_000_000;
+            balanceLine.textContent = `Your paywall balance: ${refreshedBalanceIcp.toFixed(8)} ICP`;
+
+            if (userBalanceE8s >= requiredBalanceE8s) {
+              if (note) {
+                note.remove();
+                note = null;
+              }
+              showPayFromBalanceButton();
+            } else {
+              showDepositNote();
+            }
+          } catch (error) {
+            console.error('Error refreshing balance:', error);
+            alert('Failed to refresh balance. Please try again.');
+          } finally {
+            refreshButton.disabled = false;
+            refreshButton.textContent = 'Refresh balance';
+          }
+        });
+        details.appendChild(refreshButton);
 
         const withdrawButton = document.createElement('button');
         withdrawButton.textContent = 'Withdraw from balance';

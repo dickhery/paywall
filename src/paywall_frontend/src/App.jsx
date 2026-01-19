@@ -51,6 +51,7 @@ function App() {
   const [paywallId, setPaywallId] = useState('');
   const [ownedPaywalls, setOwnedPaywalls] = useState([]);
   const [paywallConfigs, setPaywallConfigs] = useState({});
+  const [refreshingPaywallId, setRefreshingPaywallId] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editPriceIcp, setEditPriceIcp] = useState('');
   const [editTargetCanister, setEditTargetCanister] = useState('');
@@ -229,6 +230,25 @@ function App() {
     if (!isAuthenticated || !principalText) return;
     fetchOwnedPaywalls();
   }, [fetchOwnedPaywalls, isAuthenticated, principalText]);
+
+  const refreshUsageCount = useCallback(
+    async (id) => {
+      setRefreshingPaywallId(id);
+      try {
+        const actor = await getActor(authClient);
+        const config = await actor.getPaywallConfig(id);
+        if (config[0]) {
+          setPaywallConfigs((prev) => ({ ...prev, [id]: config[0] }));
+        }
+      } catch (error) {
+        console.error('Failed to refresh paywall config:', error);
+        alert('Unable to refresh paywall usage count.');
+      } finally {
+        setRefreshingPaywallId((current) => (current === id ? null : current));
+      }
+    },
+    [authClient, getActor],
+  );
 
   const startEdit = (id, config) => {
     setEditingId(id);
@@ -687,6 +707,15 @@ function App() {
                       <p>
                         <strong>Usage Count:</strong>{' '}
                         {config.usage_count.toString()}
+                        <button
+                          type="button"
+                          className="button-secondary button-compact"
+                          onClick={() => refreshUsageCount(id)}
+                          disabled={refreshingPaywallId === id}
+                          style={{ marginLeft: '8px' }}
+                        >
+                          {refreshingPaywallId === id ? 'Refreshing...' : 'Refresh'}
+                        </button>
                       </p>
                       <p>
                         <strong>Embed Script:</strong>

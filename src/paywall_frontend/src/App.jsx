@@ -508,7 +508,7 @@ function App() {
                     {formatIcp(
                       (createNetE8s *
                         BigInt(destination.percentage || 0)) /
-                        100n,
+                      100n,
                     )}{' '}
                     ICP to {destination.principal || 'destination principal'}
                   </p>
@@ -634,8 +634,7 @@ function App() {
                   {`<script type="module" data-paywall data-backend-id="${process.env.CANISTER_ID_PAYWALL_BACKEND}" src="https://${process.env.CANISTER_ID_PAYWALL_FRONTEND}.icp0.io/paywall.js?paywallId=${paywallId}"></script>`}
                 </code>
                 <p className="hint">
-                  Set <span className="mono">data-backend-id</span> to your
-                  paywall backend canister ID when embedding on non-ICP sites.
+                  Place <span className="mono">script</span> in the head of the html file. Adjust cors headers if necessary.
                 </p>
               </div>
             )}
@@ -724,9 +723,7 @@ function App() {
                         {`<script type="module" data-paywall data-backend-id="${process.env.CANISTER_ID_PAYWALL_BACKEND}" src="https://${process.env.CANISTER_ID_PAYWALL_FRONTEND}.icp0.io/paywall.js?paywallId=${id}"></script>`}
                       </code>
                       <p className="hint">
-                        Set <span className="mono">data-backend-id</span> to your
-                        paywall backend canister ID when embedding on non-ICP
-                        sites.
+                        Place <span className="mono">script</span> in the head of the html file. Adjust cors headers if necessary.
                       </p>
                       <p>
                         <strong>Split rule:</strong> Percentages apply after the
@@ -946,7 +943,7 @@ function App() {
                                 {formatIcp(
                                   (editNetE8s *
                                     BigInt(destination.percentage || 0)) /
-                                    100n,
+                                  100n,
                                 )}{' '}
                                 ICP to{' '}
                                 {destination.principal || 'destination principal'}

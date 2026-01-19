@@ -4,6 +4,7 @@ import { Principal } from '@dfinity/principal';
 import { createActor, paywall_backend } from 'declarations/paywall_backend';
 
 const LEDGER_FEE_E8S = 10_000n;
+const MAX_DESTINATIONS = 3;
 const MAINNET_II_URL = 'https://identity.ic0.app/#authorize';
 const FEE_ACCOUNT_IDENTIFIER =
   '2a4abcd2278509654f9a26b885ecb49b8619bffe58a6acb2e3a5e3c7fb96020d';
@@ -16,7 +17,18 @@ const toE8s = (icpValue) => {
   return BigInt(Math.round(parsed * 100_000_000));
 };
 
-const toOptionalText = (value) => [value.trim()];
+const toOptionalText = (value) => {
+  const trimmed = value.trim();
+  return trimmed ? [trimmed] : [];
+};
+
+const calculateFeeE8s = (priceE8s) => {
+  if (priceE8s <= 0n) return LEDGER_FEE_E8S;
+  const onePercent = priceE8s / 100n;
+  return onePercent > LEDGER_FEE_E8S ? onePercent : LEDGER_FEE_E8S;
+};
+
+const formatIcp = (e8s) => (Number(e8s) / 100_000_000).toFixed(8);
 
 function App() {
   const [authClient, setAuthClient] = useState(null);
@@ -32,9 +44,7 @@ function App() {
   const [loginPromptText, setLoginPromptText] = useState('');
   const [paymentPromptText, setPaymentPromptText] = useState('');
   const [destinations, setDestinations] = useState([
-    { principal: '', percentage: 80, convertToCycles: false },
-    { principal: '', percentage: 15, convertToCycles: true },
-    { principal: '', percentage: 5, convertToCycles: true },
+    { principal: '', percentage: 100, convertToCycles: false },
   ]);
 
   const [paywallId, setPaywallId] = useState('');
@@ -50,6 +60,26 @@ function App() {
   const [editDestinations, setEditDestinations] = useState([]);
   const [editLoginPromptText, setEditLoginPromptText] = useState('');
   const [editPaymentPromptText, setEditPaymentPromptText] = useState('');
+
+  const createPriceE8s = useMemo(() => toE8s(priceIcp), [priceIcp]);
+  const createFeeE8s = useMemo(
+    () => calculateFeeE8s(createPriceE8s),
+    [createPriceE8s],
+  );
+  const createNetE8s = useMemo(() => {
+    if (createPriceE8s <= createFeeE8s) return 0n;
+    return createPriceE8s - createFeeE8s;
+  }, [createFeeE8s, createPriceE8s]);
+
+  const editPriceE8s = useMemo(() => toE8s(editPriceIcp), [editPriceIcp]);
+  const editFeeE8s = useMemo(
+    () => calculateFeeE8s(editPriceE8s),
+    [editPriceE8s],
+  );
+  const editNetE8s = useMemo(() => {
+    if (editPriceE8s <= editFeeE8s) return 0n;
+    return editPriceE8s - editFeeE8s;
+  }, [editFeeE8s, editPriceE8s]);
 
   const identityProvider = useMemo(() => {
     if (process.env.DFX_NETWORK === 'ic') {
@@ -104,6 +134,10 @@ function App() {
   const handleCreatePaywall = async (event) => {
     event.preventDefault();
 
+    if (destinations.length === 0) {
+      alert('At least one destination is required.');
+      return;
+    }
     const totalPercent = destinations.reduce(
       (sum, destination) => sum + destination.percentage,
       0,
@@ -116,6 +150,10 @@ function App() {
     const selectedDestinations = destinations.filter(
       (destination) => destination.percentage > 0,
     );
+    if (selectedDestinations.length === 0) {
+      alert('At least one destination must have a percentage greater than 0.');
+      return;
+    }
     if (
       selectedDestinations.some(
         (destination) => !destination.principal.trim(),
@@ -124,21 +162,40 @@ function App() {
       alert('Please provide a principal for every destination with a percentage.');
       return;
     }
+    try {
+      Principal.fromText(targetCanister.trim());
+      selectedDestinations.forEach((destination) => {
+        Principal.fromText(destination.principal.trim());
+      });
+    } catch (error) {
+      alert('Invalid principal format. Please check the canister and destinations.');
+      return;
+    }
 
     const totalSeconds =
       parseDurationPart(sessionDays) * 86400 +
       parseDurationPart(sessionHours) * 3600 +
       parseDurationPart(sessionMinutes) * 60 +
       parseDurationPart(sessionSeconds);
+    if (totalSeconds <= 0) {
+      alert('Session duration must be greater than 0.');
+      return;
+    }
     const sessionDurationNs = BigInt(totalSeconds) * 1_000_000_000n;
+    const priceE8s = toE8s(priceIcp);
+    const feeE8s = calculateFeeE8s(priceE8s);
+    if (priceE8s < feeE8s) {
+      alert('Price must be at least the paywall fee (max(1% of price, 0.0001 ICP)).');
+      return;
+    }
 
     const actor = await getActor(authClient);
     const config = {
-      price_e8s: toE8s(priceIcp),
-      target_canister: Principal.fromText(targetCanister),
+      price_e8s: priceE8s,
+      target_canister: Principal.fromText(targetCanister.trim()),
       session_duration_ns: sessionDurationNs,
       destinations: selectedDestinations.map((destination) => ({
-        destination: Principal.fromText(destination.principal),
+        destination: Principal.fromText(destination.principal.trim()),
         percentage: BigInt(destination.percentage),
         convertToCycles: destination.convertToCycles,
       })),
@@ -191,18 +248,19 @@ function App() {
       percentage: Number(destination.percentage),
       convertToCycles: destination.convertToCycles,
     }));
-    while (mappedDestinations.length < 3) {
-      mappedDestinations.push({
-        principal: '',
-        percentage: 0,
-        convertToCycles: false,
-      });
-    }
-    setEditDestinations(mappedDestinations.slice(0, 3));
+    setEditDestinations(
+      mappedDestinations.length > 0
+        ? mappedDestinations
+        : [{ principal: '', percentage: 100, convertToCycles: false }],
+    );
   };
 
   const handleUpdatePaywall = async (event, id) => {
     event.preventDefault();
+    if (editDestinations.length === 0) {
+      alert('At least one destination is required.');
+      return;
+    }
     const totalPercent = editDestinations.reduce(
       (sum, destination) => sum + destination.percentage,
       0,
@@ -214,6 +272,10 @@ function App() {
     const selectedDestinations = editDestinations.filter(
       (destination) => destination.percentage > 0,
     );
+    if (selectedDestinations.length === 0) {
+      alert('At least one destination must have a percentage greater than 0.');
+      return;
+    }
     if (
       selectedDestinations.some(
         (destination) => !destination.principal.trim(),
@@ -222,20 +284,39 @@ function App() {
       alert('Please provide a principal for every destination with a percentage.');
       return;
     }
+    try {
+      Principal.fromText(editTargetCanister.trim());
+      selectedDestinations.forEach((destination) => {
+        Principal.fromText(destination.principal.trim());
+      });
+    } catch (error) {
+      alert('Invalid principal format. Please check the canister and destinations.');
+      return;
+    }
     const totalSeconds =
       parseDurationPart(editSessionDays) * 86400 +
       parseDurationPart(editSessionHours) * 3600 +
       parseDurationPart(editSessionMinutes) * 60 +
       parseDurationPart(editSessionSeconds);
+    if (totalSeconds <= 0) {
+      alert('Session duration must be greater than 0.');
+      return;
+    }
     const sessionDurationNs = BigInt(totalSeconds) * 1_000_000_000n;
+    const priceE8s = toE8s(editPriceIcp);
+    const feeE8s = calculateFeeE8s(priceE8s);
+    if (priceE8s < feeE8s) {
+      alert('Price must be at least the paywall fee (max(1% of price, 0.0001 ICP)).');
+      return;
+    }
     const actor = await getActor(authClient);
     const updates = {
-      price_e8s: [toE8s(editPriceIcp)],
-      target_canister: [Principal.fromText(editTargetCanister)],
+      price_e8s: [priceE8s],
+      target_canister: [Principal.fromText(editTargetCanister.trim())],
       session_duration_ns: [sessionDurationNs],
       destinations: [
         selectedDestinations.map((destination) => ({
-          destination: Principal.fromText(destination.principal),
+          destination: Principal.fromText(destination.principal.trim()),
           percentage: BigInt(destination.percentage),
           convertToCycles: destination.convertToCycles,
         })),
@@ -294,6 +375,10 @@ function App() {
                   onChange={(event) => setPriceIcp(event.target.value)}
                   required
                 />
+                <span className="hint">
+                  Calculated fee: {formatIcp(createFeeE8s)} ICP. Net to split:{' '}
+                  {formatIcp(createNetE8s)} ICP.
+                </span>
               </label>
               <div className="form-field">
                 <span>Destination splits</span>
@@ -364,10 +449,48 @@ function App() {
                           }}
                         />
                       </label>
+                      {destinations.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDestinations(
+                              destinations.filter((_, i) => i !== index),
+                            )
+                          }
+                        >
+                          Remove destination
+                        </button>
+                      )}
                     </div>
                   ))}
+                  {destinations.length < MAX_DESTINATIONS && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDestinations([
+                          ...destinations,
+                          { principal: '', percentage: 0, convertToCycles: false },
+                        ])
+                      }
+                    >
+                      Add destination
+                    </button>
+                  )}
                 </div>
               </div>
+              {destinations
+                .filter((destination) => destination.percentage > 0)
+                .map((destination, index) => (
+                  <p key={`split-preview-${index}`} className="hint">
+                    Split {index + 1}:{' '}
+                    {formatIcp(
+                      (createNetE8s *
+                        BigInt(destination.percentage || 0)) /
+                        100n,
+                    )}{' '}
+                    ICP to {destination.principal || 'destination principal'}
+                  </p>
+                ))}
               <p className="hint">
                 A fee of max(1% of price, 0.0001 ICP) is deducted from every
                 payment and sent to {FEE_ACCOUNT_IDENTIFIER}. Your percentages
@@ -594,6 +717,10 @@ function App() {
                               }
                               required
                             />
+                            <span className="hint">
+                              Calculated fee: {formatIcp(editFeeE8s)} ICP. Net
+                              to split: {formatIcp(editNetE8s)} ICP.
+                            </span>
                           </label>
                           <label>
                             Edit Target Canister
@@ -741,10 +868,55 @@ function App() {
                                       }}
                                     />
                                   </label>
+                                  {editDestinations.length > 1 && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setEditDestinations(
+                                          editDestinations.filter(
+                                            (_, i) => i !== index,
+                                          ),
+                                        )
+                                      }
+                                    >
+                                      Remove destination
+                                    </button>
+                                  )}
                                 </div>
                               ))}
+                              {editDestinations.length < MAX_DESTINATIONS && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setEditDestinations([
+                                      ...editDestinations,
+                                      {
+                                        principal: '',
+                                        percentage: 0,
+                                        convertToCycles: false,
+                                      },
+                                    ])
+                                  }
+                                >
+                                  Add destination
+                                </button>
+                              )}
                             </div>
                           </div>
+                          {editDestinations
+                            .filter((destination) => destination.percentage > 0)
+                            .map((destination, index) => (
+                              <p key={`edit-split-preview-${index}`} className="hint">
+                                Split {index + 1}:{' '}
+                                {formatIcp(
+                                  (editNetE8s *
+                                    BigInt(destination.percentage || 0)) /
+                                    100n,
+                                )}{' '}
+                                ICP to{' '}
+                                {destination.principal || 'destination principal'}
+                              </p>
+                            ))}
                           <label>
                             Edit login prompt text (optional)
                             <textarea

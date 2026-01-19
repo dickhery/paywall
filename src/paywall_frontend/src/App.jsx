@@ -355,7 +355,7 @@ function App() {
     <main className="app">
       <header className="hero">
         <img
-          src="/ic-paywall-logo.png"
+          src="/logo.png"
           alt="IC Paywall logo"
           className="hero-logo"
         />

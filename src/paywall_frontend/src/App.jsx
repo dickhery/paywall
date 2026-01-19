@@ -202,6 +202,7 @@ function App() {
       })),
       login_prompt_text: toOptionalText(loginPromptText),
       payment_prompt_text: toOptionalText(paymentPromptText),
+      usage_count: 0n,
     };
 
     const createdId = await actor.createPaywall(config);
@@ -682,6 +683,10 @@ function App() {
                       <p>
                         <strong>Payment Prompt:</strong>{' '}
                         {config.payment_prompt_text?.[0] || 'None set'}
+                      </p>
+                      <p>
+                        <strong>Usage Count:</strong>{' '}
+                        {config.usage_count.toString()}
                       </p>
                       <p>
                         <strong>Embed Script:</strong>

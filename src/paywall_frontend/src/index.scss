@@ -101,6 +101,18 @@ button:disabled {
   transform: none;
 }
 
+.button-secondary {
+  background: #e2e8f0;
+  color: #1d1f27;
+  box-shadow: none;
+}
+
+.button-compact {
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  box-shadow: none;
+}
+
 .stack {
   display: grid;
   gap: 12px;

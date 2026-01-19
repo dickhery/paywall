@@ -218,6 +218,14 @@ const run = async () => {
           );
         }
         const userBalanceIcp = Number(userBalanceE8s) / 100_000_000;
+        const accountIdentifier = principalToAccountIdentifier(
+          userAccount.owner,
+          userSubaccount,
+        );
+
+        const loginPrompt = overlay.querySelector('#paywall-login-prompt');
+        loginPrompt.textContent = '';
+        loginPrompt.style.display = 'none';
 
         const details = overlay.querySelector('#paywall-details');
         details.style.display = 'block';
@@ -243,6 +251,42 @@ const run = async () => {
         const requiredBalanceIcp = Number(requiredBalanceE8s) / 100_000_000;
         balanceLine.textContent = `Your paywall balance: ${userBalanceIcp.toFixed(8)} ICP`;
         details.appendChild(balanceLine);
+
+        const accountInfo = document.createElement('div');
+        accountInfo.style.margin = '0 0 12px';
+        const accountLabel = document.createElement('p');
+        accountLabel.style.margin = '0 0 8px';
+        accountLabel.textContent = 'Your Account ID:';
+        const accountRow = document.createElement('div');
+        accountRow.style.cssText =
+          'display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;';
+        const accountSpan = document.createElement('span');
+        accountSpan.className = 'mono';
+        accountSpan.textContent = accountIdentifier;
+        accountSpan.style.cssText =
+          'word-break:break-all;display:block;max-width:100%;';
+        const copyButton = document.createElement('button');
+        copyButton.type = 'button';
+        copyButton.textContent = 'Copy';
+        copyButton.style.cssText =
+          'background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer;';
+        copyButton.addEventListener('click', async () => {
+          try {
+            await copyToClipboard(accountIdentifier);
+            copyButton.textContent = 'Copied!';
+            setTimeout(() => {
+              copyButton.textContent = 'Copy';
+            }, 1500);
+          } catch (error) {
+            console.error('Copy failed:', error);
+            alert('Copy failed. Please copy the account ID manually.');
+          }
+        });
+        accountRow.appendChild(accountSpan);
+        accountRow.appendChild(copyButton);
+        accountInfo.appendChild(accountLabel);
+        accountInfo.appendChild(accountRow);
+        details.appendChild(accountInfo);
 
         if (userBalanceE8s >= requiredBalanceE8s) {
           const payFromBalanceButton = document.createElement('button');
@@ -312,51 +356,11 @@ const run = async () => {
           });
           details.appendChild(payFromBalanceButton);
         } else {
-          const accountIdentifier = principalToAccountIdentifier(
-            userAccount.owner,
-            userSubaccount,
-          );
-          const depositInfo = document.createElement('div');
-          depositInfo.style.margin = '0 0 12px';
-          const depositLabel = document.createElement('p');
-          depositLabel.style.margin = '0 0 8px';
-          depositLabel.textContent = 'Deposit ICP to this account:';
-          const depositRow = document.createElement('div');
-          depositRow.style.cssText =
-            'display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;';
-          const accountSpan = document.createElement('span');
-          accountSpan.className = 'mono';
-          accountSpan.textContent = accountIdentifier;
-          accountSpan.style.cssText =
-            'word-break:break-all;display:block;max-width:100%;';
-          const copyButton = document.createElement('button');
-          copyButton.type = 'button';
-          copyButton.textContent = 'Copy';
-          copyButton.style.cssText =
-            'background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer;';
-          copyButton.addEventListener('click', async () => {
-            try {
-              await copyToClipboard(accountIdentifier);
-              copyButton.textContent = 'Copied!';
-              setTimeout(() => {
-                copyButton.textContent = 'Copy';
-              }, 1500);
-            } catch (error) {
-              console.error('Copy failed:', error);
-              alert('Copy failed. Please copy the account ID manually.');
-            }
-          });
-          depositRow.appendChild(accountSpan);
-          depositRow.appendChild(copyButton);
-          depositInfo.appendChild(depositLabel);
-          depositInfo.appendChild(depositRow);
-          details.appendChild(depositInfo);
-
           const note = document.createElement('p');
           note.style.margin = '0 0 12px';
           note.style.fontStyle = 'italic';
           note.textContent =
-            `Deposit at least ${requiredBalanceIcp.toFixed(8)} ICP to cover the payment and ledger transfers. Copy this Account Identifier into your wallet (e.g., NNS dapp) to send ICP. After transfer, refresh or re-login to see updated balance.`;
+            `Deposit at least ${requiredBalanceIcp.toFixed(8)} ICP to cover the payment and ledger transfers. Use the Account ID above in your wallet (e.g., NNS dapp) to send ICP. After transfer, refresh or re-login to see updated balance.`;
           details.appendChild(note);
         }
 

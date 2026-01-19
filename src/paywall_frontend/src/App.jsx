@@ -3,7 +3,8 @@ import { AuthClient } from '@dfinity/auth-client';
 import { Principal } from '@dfinity/principal';
 import { createActor, paywall_backend } from 'declarations/paywall_backend';
 
-const LEDGER_FEE_E8S = 10_000n;
+const ICP_TRANSFER_FEE_E8S = 10_000n;
+const PAYWALL_MIN_FEE_E8S = 100_000n;
 const MAX_DESTINATIONS = 3;
 const MAINNET_II_URL = 'https://identity.ic0.app/#authorize';
 const FEE_ACCOUNT_IDENTIFIER =
@@ -23,9 +24,9 @@ const toOptionalText = (value) => {
 };
 
 const calculateFeeE8s = (priceE8s) => {
-  if (priceE8s <= 0n) return LEDGER_FEE_E8S;
+  if (priceE8s <= 0n) return PAYWALL_MIN_FEE_E8S;
   const onePercent = priceE8s / 100n;
-  return onePercent > LEDGER_FEE_E8S ? onePercent : LEDGER_FEE_E8S;
+  return onePercent > PAYWALL_MIN_FEE_E8S ? onePercent : PAYWALL_MIN_FEE_E8S;
 };
 
 const formatIcp = (e8s) => (Number(e8s) / 100_000_000).toFixed(8);
@@ -185,7 +186,7 @@ function App() {
     const priceE8s = toE8s(priceIcp);
     const feeE8s = calculateFeeE8s(priceE8s);
     if (priceE8s < feeE8s) {
-      alert('Price must be at least the paywall fee (max(1% of price, 0.0001 ICP)).');
+      alert('Price must be at least the paywall fee (max(1% of price, 0.001 ICP)).');
       return;
     }
 
@@ -306,7 +307,7 @@ function App() {
     const priceE8s = toE8s(editPriceIcp);
     const feeE8s = calculateFeeE8s(priceE8s);
     if (priceE8s < feeE8s) {
-      alert('Price must be at least the paywall fee (max(1% of price, 0.0001 ICP)).');
+      alert('Price must be at least the paywall fee (max(1% of price, 0.001 ICP)).');
       return;
     }
     const actor = await getActor(authClient);
@@ -492,7 +493,7 @@ function App() {
                   </p>
                 ))}
               <p className="hint">
-                A fee of max(1% of price, 0.0001 ICP) is deducted from every
+                A fee of max(1% of price, 0.001 ICP) is deducted from every
                 payment and sent to {FEE_ACCOUNT_IDENTIFIER}. Your percentages
                 apply to the remaining amount. Ensure all destinations can
                 accept ICP or cycles.
@@ -596,7 +597,7 @@ function App() {
               </label>
               <p className="hint">
                 Transfers should include the standard ledger fee of{' '}
-                {Number(LEDGER_FEE_E8S) / 100_000_000} ICP.
+                {Number(ICP_TRANSFER_FEE_E8S) / 100_000_000} ICP.
               </p>
               <button type="submit">Create paywall</button>
             </form>

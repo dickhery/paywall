@@ -89,6 +89,16 @@ persistent actor Paywall {
     destinations : [Destination];
     login_prompt_text : ?Text;
     payment_prompt_text : ?Text;
+    usage_count : Nat;
+  };
+  type PaywallConfigStable = {
+    price_e8s : Nat;
+    target_canister : Principal;
+    session_duration_ns : Nat;
+    destinations : [Destination];
+    login_prompt_text : ?Text;
+    payment_prompt_text : ?Text;
+    usage_count : ?Nat;
   };
   type PaywallUpdate = {
     price_e8s : ?Nat;
@@ -144,7 +154,7 @@ persistent actor Paywall {
     #Err : Text;
   };
 
-  stable var paywallConfigEntries : [(Text, PaywallConfig)] = [];
+  stable var paywallConfigEntries : [(Text, PaywallConfigStable)] = [];
   stable var paidStatusEntries : [(Principal, [(Text, Int)])] = [];
   stable var ownedPaywallsEntries : [(Principal, [Text])] = [];
   stable var nextPaywallId : Nat = 0;
@@ -196,7 +206,26 @@ persistent actor Paywall {
   transient var ownedPaywalls = HashMap.HashMap<Principal, [Text]>(0, Principal.equal, Principal.hash);
 
   system func preupgrade() {
-    paywallConfigEntries := Iter.toArray(paywallConfigs.entries());
+    paywallConfigEntries := Iter.toArray(
+      Iter.map<(Text, PaywallConfig), (Text, PaywallConfigStable)>(
+        paywallConfigs.entries(),
+        func(entry : (Text, PaywallConfig)) : (Text, PaywallConfigStable) {
+          let config = entry.1;
+          (
+            entry.0,
+            {
+              price_e8s = config.price_e8s;
+              target_canister = config.target_canister;
+              session_duration_ns = config.session_duration_ns;
+              destinations = config.destinations;
+              login_prompt_text = config.login_prompt_text;
+              payment_prompt_text = config.payment_prompt_text;
+              usage_count = ?config.usage_count;
+            },
+          );
+        },
+      ),
+    );
     paidStatusEntries := Iter.toArray(
       Iter.map<((Principal, HashMap.HashMap<Text, Int>)), (Principal, [(Text, Int)])>(
         paidStatuses.entries(),
@@ -218,7 +247,19 @@ persistent actor Paywall {
   system func postupgrade() {
     paywallConfigs := HashMap.HashMap<Text, PaywallConfig>(paywallConfigEntries.size(), Text.equal, Text.hash);
     for ((id, config) in paywallConfigEntries.vals()) {
-      paywallConfigs.put(id, config);
+      let usageCount = switch (config.usage_count) {
+        case (?count) count;
+        case null 0;
+      };
+      paywallConfigs.put(id, {
+        price_e8s = config.price_e8s;
+        target_canister = config.target_canister;
+        session_duration_ns = config.session_duration_ns;
+        destinations = config.destinations;
+        login_prompt_text = config.login_prompt_text;
+        payment_prompt_text = config.payment_prompt_text;
+        usage_count = usageCount;
+      });
     };
 
     paidStatuses := HashMap.HashMap<Principal, HashMap.HashMap<Text, Int>>(
@@ -489,7 +530,8 @@ persistent actor Paywall {
     let id = "pw-" # Nat.toText(nextPaywallId);
     nextPaywallId += 1;
     validateDestinations(config.destinations);
-    paywallConfigs.put(id, config);
+    let configWithCount = { config with usage_count = 0 };
+    paywallConfigs.put(id, configWithCount);
     let owner = msg.caller;
     let currentIds = switch (ownedPaywalls.get(owner)) {
       case null [];
@@ -612,6 +654,8 @@ persistent actor Paywall {
       };
     };
     userMap.put(paywallId, expiry);
+    let updatedConfig = { config with usage_count = config.usage_count + 1 };
+    paywallConfigs.put(paywallId, updatedConfig);
     #Ok;
   };
 
@@ -693,6 +737,8 @@ persistent actor Paywall {
       };
     };
     userMap.put(paywallId, expiry);
+    let updatedConfig = { config with usage_count = config.usage_count + 1 };
+    paywallConfigs.put(paywallId, updatedConfig);
     #Ok;
   };
 
@@ -756,6 +802,7 @@ persistent actor Paywall {
         case null config.payment_prompt_text;
         case (?value) ?value;
       };
+      usage_count = config.usage_count;
     };
     paywallConfigs.put(id, newConfig);
   };

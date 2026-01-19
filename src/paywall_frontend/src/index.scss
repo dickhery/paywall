@@ -40,6 +40,15 @@ body {
   opacity: 0.9;
 }
 
+.logo {
+  display: block;
+  max-width: min(360px, 100%);
+  width: 100%;
+  height: auto;
+  margin: 0 auto 16px;
+  object-fit: contain;
+}
+
 .card {
   background: #fff;
   border-radius: 16px;

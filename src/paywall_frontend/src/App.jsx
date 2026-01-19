@@ -354,6 +354,7 @@ function App() {
   return (
     <main className="app">
       <header className="hero">
+        <img src="/ic-paywall-logo.svg" alt="IC Paywall logo" className="logo" />
         <h1>IC Paywall Builder</h1>
         <p>
           Configure paywalls, generate embed scripts, and verify access using

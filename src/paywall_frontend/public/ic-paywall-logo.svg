@@ -1,0 +1,37 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="3464"
+  height="1419"
+  viewBox="0 0 3464 1419"
+  role="img"
+  aria-labelledby="ic-paywall-logo-title"
+>
+  <title id="ic-paywall-logo-title">IC Paywall</title>
+  <defs>
+    <linearGradient id="ic-paywall-gradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f62fe" />
+      <stop offset="100%" stop-color="#6f2cff" />
+    </linearGradient>
+  </defs>
+  <rect width="3464" height="1419" rx="240" fill="url(#ic-paywall-gradient)" />
+  <rect
+    x="120"
+    y="120"
+    width="3224"
+    height="1179"
+    rx="200"
+    fill="rgba(255, 255, 255, 0.12)"
+  />
+  <text
+    x="50%"
+    y="54%"
+    text-anchor="middle"
+    font-family="'Inter', 'Segoe UI', sans-serif"
+    font-size="360"
+    font-weight="700"
+    fill="#ffffff"
+    letter-spacing="8"
+  >
+    IC Paywall
+  </text>
+</svg>

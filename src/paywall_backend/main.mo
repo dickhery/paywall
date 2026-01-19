@@ -152,7 +152,8 @@ persistent actor Paywall {
 
   transient let ledger : Ledger = actor ("ryjl3-tyaaa-aaaaa-aaaba-cai");
   transient let cmc : CyclesMintingCanister = actor ("rkp4c-7iaaa-aaaaa-aaaca-cai");
-  let ledgerFee : Nat = 10_000;
+  let icpTransferFee : Nat = 10_000;
+  let paywallMinFeeE8s : Nat = 100_000;
   let feeAccountIdentifierHex : Text =
     "2a4abcd2278509654f9a26b885ecb49b8619bffe58a6acb2e3a5e3c7fb96020d";
   private func hexToNibble(char : Char) : ?Nat8 {
@@ -340,7 +341,7 @@ persistent actor Paywall {
       };
       amount;
       from_subaccount;
-      fee = ?ledgerFee;
+      fee = ?icpTransferFee;
       memo = ?memo;
       created_at_time = null;
     });
@@ -380,7 +381,7 @@ persistent actor Paywall {
       };
       amount;
       from_subaccount;
-      fee = ?ledgerFee;
+      fee = ?icpTransferFee;
       memo = ?memo;
       created_at_time = null;
     });
@@ -420,7 +421,7 @@ persistent actor Paywall {
         };
         amount;
         from_subaccount;
-        fee = ?ledgerFee;
+        fee = ?icpTransferFee;
         memo = null;
         created_at_time = null;
       });
@@ -450,7 +451,7 @@ persistent actor Paywall {
     let transferResult = await ledger.transfer({
       to = feeAccountIdentifier;
       amount = { e8s = Nat64.fromNat(amount) };
-      fee = { e8s = Nat64.fromNat(ledgerFee) };
+      fee = { e8s = Nat64.fromNat(icpTransferFee) };
       memo = 0;
       from_subaccount;
       created_at_time = null;
@@ -481,7 +482,7 @@ persistent actor Paywall {
   };
 
   private func calculateFee(price_e8s : Nat) : Nat {
-    Nat.max(price_e8s / 100, ledgerFee);
+    Nat.max(price_e8s / 100, paywallMinFeeE8s);
   };
 
   public shared(msg) func createPaywall(config : PaywallConfig) : async Text {
@@ -529,7 +530,7 @@ persistent actor Paywall {
       to;
       amount;
       from_subaccount = ?subaccount;
-      fee = ?ledgerFee;
+      fee = ?icpTransferFee;
       memo = null;
       created_at_time = null;
     });
@@ -549,7 +550,7 @@ persistent actor Paywall {
       return #Err("Paywall price is too low to cover the fee.");
     };
     let transferCount = config.destinations.size() + 1;
-    let requiredBalance = config.price_e8s + (ledgerFee * transferCount);
+    let requiredBalance = config.price_e8s + (icpTransferFee * transferCount);
     if (balance < requiredBalance) {
       return #Err(
         "Insufficient balance: have " # Nat.toText(balance) # ", need " #
@@ -628,7 +629,7 @@ persistent actor Paywall {
       return #Err("Paywall price is too low to cover the fee.");
     };
     let transferCount = config.destinations.size() + 1;
-    let requiredBalance = config.price_e8s + (ledgerFee * transferCount);
+    let requiredBalance = config.price_e8s + (icpTransferFee * transferCount);
     if (balance < requiredBalance) {
       return #Err(
         "Insufficient balance: have " # Nat.toText(balance) # ", need " #

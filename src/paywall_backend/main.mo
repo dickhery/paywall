@@ -94,7 +94,7 @@ persistent actor Paywall {
 
   type PaywallConfig = {
     price_e8s : Nat;
-    target_canister : Principal;
+    target_url : Text;
     session_duration_ns : Nat;
     destinations : [Destination];
     login_prompt_text : ?Text;
@@ -104,7 +104,7 @@ persistent actor Paywall {
 
   type PaywallConfigStable = {
     price_e8s : Nat;
-    target_canister : Principal;
+    target_url : Text;
     session_duration_ns : Nat;
     destinations : [(Dest, Nat)];
     login_prompt_text : ?Text;
@@ -114,7 +114,7 @@ persistent actor Paywall {
 
   type PaywallUpdate = {
     price_e8s : ?Nat;
-    target_canister : ?Principal;
+    target_url : ?Text;
     session_duration_ns : ?Nat;
     destinations : ?[Destination];
     login_prompt_text : ?Text;
@@ -231,7 +231,7 @@ persistent actor Paywall {
             entry.0,
             {
               price_e8s = config.price_e8s;
-              target_canister = config.target_canister;
+              target_url = config.target_url;
               session_duration_ns = config.session_duration_ns;
               destinations = stableDests;
               login_prompt_text = config.login_prompt_text;
@@ -272,7 +272,7 @@ persistent actor Paywall {
       });
       paywallConfigs.put(id, {
         price_e8s = config.price_e8s;
-        target_canister = config.target_canister;
+        target_url = config.target_url;
         session_duration_ns = config.session_duration_ns;
         destinations = dests;
         login_prompt_text = config.login_prompt_text;
@@ -832,8 +832,8 @@ persistent actor Paywall {
         case null config.price_e8s;
         case (?value) value;
       };
-      target_canister = switch (updates.target_canister) {
-        case null config.target_canister;
+      target_url = switch (updates.target_url) {
+        case null config.target_url;
         case (?value) value;
       };
       session_duration_ns = switch (updates.session_duration_ns) {

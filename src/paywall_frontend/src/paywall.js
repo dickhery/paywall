@@ -78,7 +78,7 @@ const idlFactory = ({ IDL }) => {
   });
   const PaywallConfig = IDL.Record({
     price_e8s: IDL.Nat,
-    target_canister: IDL.Principal,
+    target_url: IDL.Text,
     session_duration_ns: IDL.Nat,
     destinations: IDL.Vec(Destination),
     login_prompt_text: IDL.Opt(IDL.Text),

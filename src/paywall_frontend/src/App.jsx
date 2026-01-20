@@ -49,13 +49,22 @@ const bytesToHex = (bytes) =>
     .map((byte) => byte.toString(16).padStart(2, '0'))
     .join('');
 
+const isValidUrl = (urlString) => {
+  try {
+    const url = new URL(urlString);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
 function App() {
   const [authClient, setAuthClient] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [principalText, setPrincipalText] = useState('');
 
   const [priceIcp, setPriceIcp] = useState('0.1');
-  const [targetCanister, setTargetCanister] = useState('');
+  const [targetUrl, setTargetUrl] = useState('');
   const [sessionDays, setSessionDays] = useState('0');
   const [sessionHours, setSessionHours] = useState('1');
   const [sessionMinutes, setSessionMinutes] = useState('0');
@@ -72,7 +81,7 @@ function App() {
   const [refreshingPaywallId, setRefreshingPaywallId] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editPriceIcp, setEditPriceIcp] = useState('');
-  const [editTargetCanister, setEditTargetCanister] = useState('');
+  const [editTargetUrl, setEditTargetUrl] = useState('');
   const [editSessionDays, setEditSessionDays] = useState('');
   const [editSessionHours, setEditSessionHours] = useState('');
   const [editSessionMinutes, setEditSessionMinutes] = useState('');
@@ -179,10 +188,9 @@ function App() {
       return;
     }
 
-    try {
-      Principal.fromText(targetCanister.trim());
-    } catch (error) {
-      alert('Invalid target canister principal.');
+    const trimmedUrl = targetUrl.trim();
+    if (!trimmedUrl || !isValidUrl(trimmedUrl)) {
+      alert('Invalid URL. Please enter a valid URL (e.g., https://example.com).');
       return;
     }
 
@@ -237,7 +245,7 @@ function App() {
     const actor = await getActor(authClient);
     const config = {
       price_e8s: priceE8s,
-      target_canister: Principal.fromText(targetCanister.trim()),
+      target_url: trimmedUrl,
       session_duration_ns: sessionDurationNs,
       destinations: destVariants,
       login_prompt_text: toOptionalText(loginPromptText),
@@ -292,7 +300,7 @@ function App() {
   const startEdit = (id, config) => {
     setEditingId(id);
     setEditPriceIcp((Number(config.price_e8s) / 100_000_000).toString());
-    setEditTargetCanister(config.target_canister.toText());
+    setEditTargetUrl(config.target_url);
     const totalSeconds = Number(config.session_duration_ns) / 1_000_000_000;
     setEditSessionDays(Math.floor(totalSeconds / 86400).toString());
     setEditSessionHours(
@@ -362,10 +370,9 @@ function App() {
       return;
     }
 
-    try {
-      Principal.fromText(editTargetCanister.trim());
-    } catch (error) {
-      alert('Invalid target canister principal.');
+    const trimmedUrl = editTargetUrl.trim();
+    if (!trimmedUrl || !isValidUrl(trimmedUrl)) {
+      alert('Invalid URL. Please enter a valid URL (e.g., https://example.com).');
       return;
     }
 
@@ -419,7 +426,7 @@ function App() {
     const actor = await getActor(authClient);
     const updates = {
       price_e8s: [priceE8s],
-      target_canister: [Principal.fromText(editTargetCanister.trim())],
+      target_url: [trimmedUrl],
       session_duration_ns: [sessionDurationNs],
       destinations: [destVariants],
       login_prompt_text: toOptionalText(editLoginPromptText),
@@ -666,16 +673,16 @@ function App() {
                 accept ICP or cycles.
               </p>
               <label>
-                Associated principal
+                Associated URL
                 <span className="hint">
-                  Use any principal (canister or user) that helps you remember
-                  where this paywall is used.
+                  Enter the URL where this paywall will be deployed (e.g.,
+                  https://example.com).
                 </span>
                 <input
                   type="text"
-                  value={targetCanister}
-                  onChange={(event) => setTargetCanister(event.target.value)}
-                  placeholder="aaaaa-aa"
+                  value={targetUrl}
+                  onChange={(event) => setTargetUrl(event.target.value)}
+                  placeholder="https://example.com"
                   required
                 />
               </label>
@@ -832,8 +839,7 @@ function App() {
                         ))}
                       </ul>
                       <p>
-                        <strong>Target Canister:</strong>{' '}
-                        {config.target_canister.toText()}
+                        <strong>Target URL:</strong> {config.target_url}
                       </p>
                       <p>
                         <strong>Session Duration:</strong> {days}d {hours}h{' '}
@@ -924,17 +930,18 @@ function App() {
                             </span>
                           </label>
                           <label>
-                            Associated principal
+                            Associated URL
                             <span className="hint">
-                              Use any principal that helps you track where this
-                              paywall is used.
+                              Enter the URL where this paywall will be deployed
+                              (e.g., https://example.com).
                             </span>
                             <input
                               type="text"
-                              value={editTargetCanister}
+                              value={editTargetUrl}
                               onChange={(event) =>
-                                setEditTargetCanister(event.target.value)
+                                setEditTargetUrl(event.target.value)
                               }
+                              placeholder="https://example.com"
                               required
                             />
                           </label>

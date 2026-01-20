@@ -784,7 +784,7 @@ function App() {
                 </p>
                 <p>Embed this script in your site:</p>
                 <code>
-                  {`<script type="module" data-paywall data-backend-id="${process.env.CANISTER_ID_PAYWALL_BACKEND}" src="https://${process.env.CANISTER_ID_PAYWALL_FRONTEND}.icp0.io/paywall.js?paywallId=${paywallId}"></script>`}
+                  {`<script type="module" data-paywall data-backend-id="${process.env.CANISTER_ID_PAYWALL_BACKEND}" src="https://${process.env.CANISTER_ID_PAYWALL_FRONTEND}.icp0.io/paywall.js?paywallId=${paywallId}&v=${Date.now()}"></script>`}
                 </code>
                 <p className="hint">
                   Place <span className="mono">script</span> in the head of the html file. Adjust cors headers if necessary.
@@ -870,7 +870,7 @@ function App() {
                         <strong>Embed Script:</strong>
                       </p>
                       <code>
-                        {`<script type="module" data-paywall data-backend-id="${process.env.CANISTER_ID_PAYWALL_BACKEND}" src="https://${process.env.CANISTER_ID_PAYWALL_FRONTEND}.icp0.io/paywall.js?paywallId=${id}"></script>`}
+                        {`<script type="module" data-paywall data-backend-id="${process.env.CANISTER_ID_PAYWALL_BACKEND}" src="https://${process.env.CANISTER_ID_PAYWALL_FRONTEND}.icp0.io/paywall.js?paywallId=${id}&v=${Date.now()}"></script>`}
                       </code>
                       <p className="hint">
                         Place <span className="mono">script</span> in the head of the html file. Adjust cors headers if necessary.

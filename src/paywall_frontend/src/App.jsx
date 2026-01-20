@@ -830,6 +830,31 @@ function App() {
                         Place <span className="mono">script</span> in the head of the html file. Adjust cors headers if necessary.
                       </p>
                       <p>
+                        <strong>Integration tips for integrity:</strong>
+                      </p>
+                      <ul className="list">
+                        <li>
+                          For static sites, call{' '}
+                          <code>
+                            {`window.paywallHandshake(() => { /* logout or hide UI */ });`}
+                          </code>{' '}
+                          before rendering sensitive UI, and block access until it
+                          returns <code>true</code>.
+                        </li>
+                        <li>
+                          For dynamic canisters, enforce server-side access in
+                          Motoko with a paywall check, for example:{' '}
+                          <code>
+                            {`if (not (await Paywall.hasAccess(caller, "${id}"))) { Debug.trap("Access denied"); };`}
+                          </code>
+                        </li>
+                        <li>
+                          Re-check access periodically in your app (for example, every
+                          60 seconds) and invalidate the session if the handshake
+                          fails.
+                        </li>
+                      </ul>
+                      <p>
                         <strong>Split rule:</strong> Percentages apply after the
                         paywall fee.
                       </p>

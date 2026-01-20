@@ -9,6 +9,10 @@ const II_URL = 'https://identity.ic0.app/#authorize';
 const DEFAULT_LEDGER_ID = 'ryjl3-tyaaa-aaaaa-aaaba-cai';
 const LEDGER_FEE_E8S = 10000n;
 const PERIODIC_CHECK_INTERVAL_MS = 60000;
+let storedBodyNodes = [];
+let overlayObserver = null;
+let bodyObserver = null;
+let paywallActive = false;
 
 if (!globalThis.Buffer) {
   globalThis.Buffer = Buffer;
@@ -241,8 +245,7 @@ const setupPaymentUI = async (
       try {
         const result = await authedActor.payFromBalance(paywallId);
         if ('Ok' in result) {
-          overlay.remove();
-          document.body.style.visibility = 'visible';
+          revealContent(overlay);
           if (onAccessGranted) {
             await onAccessGranted();
           }
@@ -464,16 +467,71 @@ const removeLoginControls = (overlay) => {
   }
 };
 
-const showOverlay = (overlay) => {
+const hideContent = () => {
+  if (storedBodyNodes.length > 0) return;
+  storedBodyNodes = Array.from(document.body.childNodes);
+  storedBodyNodes.forEach((node) => document.body.removeChild(node));
+  document.body.style.overflow = 'hidden';
   document.body.style.visibility = 'hidden';
+};
+
+const restoreContent = () => {
+  if (storedBodyNodes.length === 0) return;
+  storedBodyNodes.forEach((node) => document.body.appendChild(node));
+  storedBodyNodes = [];
+  document.body.style.overflow = '';
+  document.body.style.visibility = '';
+};
+
+const startOverlayObservers = (overlay) => {
+  if (!overlayObserver) {
+    overlayObserver = new MutationObserver(() => {
+      if (paywallActive && !overlay.isConnected) {
+        document.documentElement.appendChild(overlay);
+      }
+    });
+    overlayObserver.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+    });
+  }
+  if (!bodyObserver) {
+    bodyObserver = new MutationObserver(() => {
+      if (paywallActive && storedBodyNodes.length === 0) {
+        if (document.body.childNodes.length > 0) {
+          hideContent();
+        }
+      }
+    });
+    bodyObserver.observe(document.body, { childList: true, subtree: false });
+  }
+};
+
+const stopOverlayObservers = () => {
+  if (overlayObserver) {
+    overlayObserver.disconnect();
+    overlayObserver = null;
+  }
+  if (bodyObserver) {
+    bodyObserver.disconnect();
+    bodyObserver = null;
+  }
+};
+
+const showOverlay = (overlay) => {
+  paywallActive = true;
+  hideContent();
   if (!overlay.isConnected) {
     document.documentElement.appendChild(overlay);
   }
+  startOverlayObservers(overlay);
 };
 
 const revealContent = (overlay) => {
   overlay.remove();
-  document.body.style.visibility = 'visible';
+  paywallActive = false;
+  stopOverlayObservers();
+  restoreContent();
 };
 
 const run = async () => {
@@ -560,6 +618,7 @@ const run = async () => {
           }
         } catch (error) {
           console.error('Periodic access check failed:', error);
+          await showPaywall(authedActor, identity);
         }
       }, PERIODIC_CHECK_INTERVAL_MS);
 
@@ -641,9 +700,41 @@ const run = async () => {
 
     overlay.querySelector('#paywall-login-prompt').textContent = loginPromptText;
     showOverlay(overlay);
+
+    window.paywallHandshake = async (onFailure) => {
+      try {
+        const authClient = await AuthClient.create();
+        const isAuthed = await authClient.isAuthenticated();
+        if (!isAuthed) {
+          if (onFailure) onFailure();
+          return false;
+        }
+        const identity = authClient.getIdentity();
+        const handshakeAgent = new HttpAgent({ host: 'https://icp0.io' });
+        handshakeAgent.replaceIdentity(identity);
+        const authedActor = Actor.createActor(idlFactory, {
+          agent: handshakeAgent,
+          canisterId: backendId,
+        });
+        const hasAccess = await authedActor.hasAccess(
+          identity.getPrincipal(),
+          paywallId,
+        );
+        if (!hasAccess && onFailure) {
+          onFailure();
+        }
+        return hasAccess;
+      } catch (error) {
+        console.error('Handshake failed:', error);
+        if (onFailure) onFailure();
+        return false;
+      }
+    };
   } catch (error) {
     console.error('Paywall script error:', error);
-    document.body.style.visibility = 'visible';
+    paywallActive = false;
+    stopOverlayObservers();
+    restoreContent();
   }
 };
 

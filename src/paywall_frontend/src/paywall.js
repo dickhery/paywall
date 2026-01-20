@@ -8,11 +8,22 @@ import { Principal } from '@dfinity/principal';
 const II_URL = 'https://identity.ic0.app/#authorize';
 const DEFAULT_LEDGER_ID = 'ryjl3-tyaaa-aaaaa-aaaba-cai';
 const LEDGER_FEE_E8S = 10000n;
-const PERIODIC_CHECK_INTERVAL_MS = 60000;
-let storedBodyNodes = [];
+const PERIODIC_CHECK_INTERVAL_MS = 30000;
+const TAMPER_CHECK_INTERVAL_MS = 5000;
+const DEVTOOLS_THRESHOLD_PX = 160;
+const OVERLAY_STYLE =
+  'position:fixed;inset:0;background:rgba(6,9,20,0.88);color:#fff;z-index:999999999;display:flex;align-items:center;justify-content:center;padding:24px;pointer-events:all;';
+let storedBodyHtml = '';
+let storedBodyAttributes = null;
 let overlayObserver = null;
 let bodyObserver = null;
 let paywallActive = false;
+let tamperDetected = false;
+let tamperIntervalId = null;
+let tamperContext = null;
+let activeOverlay = null;
+let interactionsDisabled = false;
+let lastTamperLogAt = 0;
 
 if (!globalThis.Buffer) {
   globalThis.Buffer = Buffer;
@@ -98,13 +109,103 @@ const idlFactory = ({ IDL }) => {
     verifyPayment: IDL.Func([IDL.Text], [PaymentResult], []),
     withdrawFromWallet: IDL.Func([IDL.Nat, Account], [IDL.Variant({ Ok: IDL.Nat, Err: IDL.Variant({ BadFee: IDL.Record({ expected_fee: IDL.Nat }), BadBurn: IDL.Record({ min_burn_amount: IDL.Nat }), Duplicate: IDL.Record({ duplicate_of: IDL.Nat }), InsufficientFunds: IDL.Record({ balance: IDL.Nat }), CreatedInFuture: IDL.Record({ ledger_time: IDL.Nat64 }), TooOld: IDL.Null, TemporarilyUnavailable: IDL.Null, GenericError: IDL.Record({ message: IDL.Text, error_code: IDL.Nat }) }) })], []),
     getAccessExpiry: IDL.Func([IDL.Principal, IDL.Text], [IDL.Opt(IDL.Int)], ['query']),
+    logTamper: IDL.Func([IDL.Text, IDL.Text], [], ['query']),
   });
+};
+
+const bytesToHex = (bytes) =>
+  Array.from(bytes)
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+
+const getExpectedScriptHash = (scriptTag) =>
+  (scriptTag?.dataset?.integrityHash || window.PAYWALL_SCRIPT_HASH || '')
+    .trim()
+    .toLowerCase();
+
+const fetchScriptHash = async (scriptTag) => {
+  if (!scriptTag?.src || !window.crypto?.subtle) return null;
+  try {
+    const response = await fetch(scriptTag.src, { cache: 'no-store' });
+    if (!response.ok) {
+      return null;
+    }
+    const buffer = await response.arrayBuffer();
+    const hashBuffer = await window.crypto.subtle.digest('SHA-256', buffer);
+    return bytesToHex(new Uint8Array(hashBuffer));
+  } catch (error) {
+    console.warn('Failed to hash paywall script:', error);
+    return null;
+  }
+};
+
+const logTamper = async (details) => {
+  if (!tamperContext?.actor || !tamperContext?.paywallId) return;
+  const now = Date.now();
+  if (now - lastTamperLogAt < 10_000) return;
+  lastTamperLogAt = now;
+  try {
+    await tamperContext.actor.logTamper(tamperContext.paywallId, details);
+  } catch (error) {
+    console.warn('Tamper log failed:', error);
+  }
+};
+
+const markTamper = (details) => {
+  tamperDetected = true;
+  const warning = activeOverlay?.querySelector('#tamper-warning');
+  if (warning) {
+    warning.style.display = 'block';
+  }
+  void logTamper(details);
+};
+
+const checkScriptIntegrity = async (scriptTag, expectedHash) => {
+  if (!expectedHash) return true;
+  const hash = await fetchScriptHash(scriptTag);
+  if (!hash) return true;
+  return hash === expectedHash;
+};
+
+const detectDevTools = () => {
+  const widthGap = Math.abs(window.outerWidth - window.innerWidth);
+  const heightGap = Math.abs(window.outerHeight - window.innerHeight);
+  return widthGap < DEVTOOLS_THRESHOLD_PX && heightGap < DEVTOOLS_THRESHOLD_PX;
+};
+
+const runTamperCheck = async () => {
+  if (!tamperContext || tamperDetected) return !tamperDetected;
+  const integrityOk = await checkScriptIntegrity(
+    tamperContext.scriptTag,
+    tamperContext.expectedScriptHash,
+  );
+  if (!integrityOk) {
+    markTamper('Script integrity check failed');
+  }
+  if (!detectDevTools()) {
+    markTamper('Dev tools detected');
+  }
+  return !tamperDetected;
+};
+
+const startTamperChecks = () => {
+  if (tamperIntervalId) return;
+  tamperIntervalId = setInterval(() => {
+    if (!paywallActive) return;
+    void runTamperCheck();
+  }, TAMPER_CHECK_INTERVAL_MS);
+};
+
+const stopTamperChecks = () => {
+  if (tamperIntervalId) {
+    clearInterval(tamperIntervalId);
+    tamperIntervalId = null;
+  }
 };
 
 const buildOverlay = (onLogin) => {
   const overlay = document.createElement('div');
-  overlay.style.cssText =
-    'position:fixed;inset:0;background:rgba(6,9,20,0.88);color:#fff;z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;';
+  overlay.style.cssText = OVERLAY_STYLE;
   const panel = document.createElement('div');
   panel.style.cssText =
     'background:#111827;padding:32px;border-radius:16px;max-width:480px;width:100%;text-align:center;box-shadow:0 20px 40px rgba(0,0,0,0.45);';
@@ -116,6 +217,7 @@ const buildOverlay = (onLogin) => {
     <div id="paywall-details" style="display:none;margin-top:16px;text-align:left;font-size:14px;"></div>
     <div id="paywall-loading" style="display:none;margin-top:16px;color:#9ca3af;">Loading...</div>
     <div id="paywall-error" style="display:none;margin-top:16px;color:#ef4444;"></div>
+    <p id="tamper-warning" style="display:none;color:#ef4444;font-weight:bold;">Tampering detected! Access blocked.</p>
   `;
   overlay.appendChild(panel);
 
@@ -484,20 +586,87 @@ const removeLoginControls = (overlay) => {
   }
 };
 
+const preventPaywalledInteraction = (event) => {
+  if (!paywallActive) return;
+  if (activeOverlay && activeOverlay.contains(event.target)) return;
+  event.preventDefault();
+  event.stopPropagation();
+};
+
+const disableInteractions = () => {
+  if (interactionsDisabled) return;
+  interactionsDisabled = true;
+  document.body.style.pointerEvents = 'none';
+  document.body.style.userSelect = 'none';
+  [
+    'keydown',
+    'keyup',
+    'keypress',
+    'contextmenu',
+    'wheel',
+    'touchmove',
+    'pointerdown',
+    'mousedown',
+    'mouseup',
+    'click',
+  ].forEach((eventName) => {
+    document.addEventListener(eventName, preventPaywalledInteraction, {
+      capture: true,
+      passive: false,
+    });
+  });
+};
+
+const enableInteractions = () => {
+  if (!interactionsDisabled) return;
+  interactionsDisabled = false;
+  document.body.style.pointerEvents = '';
+  document.body.style.userSelect = '';
+  [
+    'keydown',
+    'keyup',
+    'keypress',
+    'contextmenu',
+    'wheel',
+    'touchmove',
+    'pointerdown',
+    'mousedown',
+    'mouseup',
+    'click',
+  ].forEach((eventName) => {
+    document.removeEventListener(eventName, preventPaywalledInteraction, {
+      capture: true,
+    });
+  });
+};
+
 const hideContent = () => {
-  if (storedBodyNodes.length > 0) return;
-  storedBodyNodes = Array.from(document.body.childNodes);
-  storedBodyNodes.forEach((node) => document.body.removeChild(node));
+  if (storedBodyHtml) return;
+  storedBodyHtml = document.body.innerHTML;
+  storedBodyAttributes = {
+    className: document.body.className,
+    style: document.body.getAttribute('style') || '',
+  };
+  document.body.innerHTML = '';
   document.body.style.overflow = 'hidden';
   document.body.style.visibility = 'hidden';
+  disableInteractions();
 };
 
 const restoreContent = () => {
-  if (storedBodyNodes.length === 0) return;
-  storedBodyNodes.forEach((node) => document.body.appendChild(node));
-  storedBodyNodes = [];
-  document.body.style.overflow = '';
-  document.body.style.visibility = '';
+  if (!storedBodyHtml) return;
+  document.body.innerHTML = storedBodyHtml;
+  if (storedBodyAttributes) {
+    document.body.className = storedBodyAttributes.className || '';
+    if (storedBodyAttributes.style) {
+      document.body.setAttribute('style', storedBodyAttributes.style);
+    } else {
+      document.body.removeAttribute('style');
+    }
+  }
+  storedBodyHtml = '';
+  storedBodyAttributes = null;
+  enableInteractions();
 };
 
 const ensureBodyReady = () =>
@@ -511,7 +680,19 @@ const ensureBodyReady = () =>
 
 const startOverlayObservers = (overlay) => {
   if (!overlayObserver) {
-    overlayObserver = new MutationObserver(() => {
+    overlayObserver = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === 'childList' && paywallActive && !overlay.isConnected) {
+          document.documentElement.appendChild(overlay);
+        }
+        if (
+          mutation.type === 'attributes' &&
+          mutation.target === overlay &&
+          mutation.attributeName === 'style'
+        ) {
+          overlay.style.cssText = OVERLAY_STYLE;
+        }
+      }
       if (paywallActive && !overlay.isConnected) {
         document.documentElement.appendChild(overlay);
       }
@@ -519,17 +700,19 @@ const startOverlayObservers = (overlay) => {
     overlayObserver.observe(document.documentElement, {
       childList: true,
       subtree: true,
+      attributes: true,
+      attributeFilter: ['style'],
     });
   }
   if (!bodyObserver) {
     bodyObserver = new MutationObserver(() => {
-      if (paywallActive && storedBodyNodes.length === 0) {
-        if (document.body.childNodes.length > 0) {
+      if (paywallActive && !storedBodyHtml) {
+        if (document.body.childNodes.length > 0 || document.body.innerHTML) {
           hideContent();
         }
       }
     });
-    bodyObserver.observe(document.body, { childList: true, subtree: false });
+    bodyObserver.observe(document.body, { childList: true, subtree: true });
   }
 };
 
@@ -546,17 +729,32 @@ const stopOverlayObservers = () => {
 
 const showOverlay = (overlay) => {
   paywallActive = true;
+  activeOverlay = overlay;
   hideContent();
   if (!overlay.isConnected) {
     document.documentElement.appendChild(overlay);
   }
+  if (tamperDetected) {
+    const warning = overlay.querySelector('#tamper-warning');
+    if (warning) {
+      warning.style.display = 'block';
+    }
+  }
   startOverlayObservers(overlay);
+  startTamperChecks();
+  void runTamperCheck();
 };
 
 const revealContent = (overlay) => {
+  if (tamperDetected) {
+    showOverlay(overlay);
+    return;
+  }
   overlay.remove();
   paywallActive = false;
+  activeOverlay = null;
   stopOverlayObservers();
+  stopTamperChecks();
   restoreContent();
 };
 
@@ -577,6 +775,7 @@ const run = async () => {
 
     if (!backendId) return;
 
+    const expectedScriptHash = getExpectedScriptHash(scriptTag);
     const agent = new HttpAgent({ host: 'https://icp0.io' });
     const actor = Actor.createActor(idlFactory, {
       agent,
@@ -736,10 +935,22 @@ const run = async () => {
       }
     });
 
+    tamperContext = {
+      actor,
+      paywallId,
+      scriptTag,
+      expectedScriptHash,
+      overlay,
+    };
+
     overlay.querySelector('#paywall-login-prompt').textContent = loginPromptText;
     showOverlay(overlay);
 
     window.paywallHandshake = async (onFailure) => {
+      if (tamperDetected) {
+        if (onFailure) onFailure();
+        return false;
+      }
       try {
         const authClient = await AuthClient.create();
         const isAuthed = await authClient.isAuthenticated();
@@ -758,6 +969,11 @@ const run = async () => {
           identity.getPrincipal(),
           paywallId,
         );
+        const tamperOk = await runTamperCheck();
+        if (!tamperOk) {
+          if (onFailure) onFailure();
+          return false;
+        }
         if (!hasAccess && onFailure) {
           onFailure();
         }
@@ -771,7 +987,10 @@ const run = async () => {
   } catch (error) {
     console.error('Paywall script error:', error);
     paywallActive = false;
+    activeOverlay = null;
+    tamperContext = null;
     stopOverlayObservers();
+    stopTamperChecks();
     restoreContent();
   }
 };

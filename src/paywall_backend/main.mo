@@ -808,6 +808,10 @@ persistent actor Paywall {
     };
   };
 
+  public query func logTamper(paywallId : Text, details : Text) : async () {
+    Debug.print("Tamper detected for paywall " # paywallId # ": " # details);
+  };
+
   public shared(msg) func updatePaywall(id : Text, updates : PaywallUpdate) : async () {
     let ?config = paywallConfigs.get(id) else return;
     let ownerIds = switch (ownedPaywalls.get(msg.caller)) {

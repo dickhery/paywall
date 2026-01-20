@@ -31,6 +31,24 @@ const calculateFeeE8s = (priceE8s) => {
 
 const formatIcp = (e8s) => (Number(e8s) / 100_000_000).toFixed(8);
 
+const isAccountId = (value) => /^[0-9a-fA-F]{64}$/.test(value);
+
+const hexToBytes = (hex) => {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2) {
+    bytes[i / 2] = Number.parseInt(hex.slice(i, i + 2), 16);
+  }
+  return bytes;
+};
+
+const normalizeBytes = (bytes) =>
+  bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes);
+
+const bytesToHex = (bytes) =>
+  Array.from(bytes)
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+
 function App() {
   const [authClient, setAuthClient] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -45,7 +63,7 @@ function App() {
   const [loginPromptText, setLoginPromptText] = useState('');
   const [paymentPromptText, setPaymentPromptText] = useState('');
   const [destinations, setDestinations] = useState([
-    { principal: '', percentage: 100, convertToCycles: false },
+    { input: '', percentage: 100, convertToCycles: false, isPrincipal: true },
   ]);
 
   const [paywallId, setPaywallId] = useState('');
@@ -156,22 +174,47 @@ function App() {
       alert('At least one destination must have a percentage greater than 0.');
       return;
     }
-    if (
-      selectedDestinations.some(
-        (destination) => !destination.principal.trim(),
-      )
-    ) {
-      alert('Please provide a principal for every destination with a percentage.');
+    if (selectedDestinations.some((destination) => !destination.input.trim())) {
+      alert('Please provide a value for every destination with a percentage.');
       return;
     }
+
     try {
       Principal.fromText(targetCanister.trim());
-      selectedDestinations.forEach((destination) => {
-        Principal.fromText(destination.principal.trim());
-      });
     } catch (error) {
-      alert('Invalid principal format. Please check the canister and destinations.');
+      alert('Invalid target canister principal.');
       return;
+    }
+
+    const destVariants = [];
+    for (const destination of selectedDestinations) {
+      const input = destination.input.trim();
+      if (isAccountId(input)) {
+        if (destination.convertToCycles) {
+          alert('Convert to cycles not supported for Account IDs.');
+          return;
+        }
+        destVariants.push({
+          percentage: BigInt(destination.percentage),
+          dest: { AccountId: hexToBytes(input) },
+        });
+      } else {
+        try {
+          const principal = Principal.fromText(input);
+          destVariants.push({
+            percentage: BigInt(destination.percentage),
+            dest: {
+              Principal: {
+                principal,
+                convertToCycles: destination.convertToCycles,
+              },
+            },
+          });
+        } catch (error) {
+          alert(`Invalid principal: ${input}`);
+          return;
+        }
+      }
     }
 
     const totalSeconds =
@@ -196,11 +239,7 @@ function App() {
       price_e8s: priceE8s,
       target_canister: Principal.fromText(targetCanister.trim()),
       session_duration_ns: sessionDurationNs,
-      destinations: selectedDestinations.map((destination) => ({
-        destination: Principal.fromText(destination.principal.trim()),
-        percentage: BigInt(destination.percentage),
-        convertToCycles: destination.convertToCycles,
-      })),
+      destinations: destVariants,
       login_prompt_text: toOptionalText(loginPromptText),
       payment_prompt_text: toOptionalText(paymentPromptText),
       usage_count: 0n,
@@ -265,15 +304,35 @@ function App() {
     setEditSessionSeconds(((totalSeconds % 86400) % 60).toString());
     setEditLoginPromptText(config.login_prompt_text?.[0] || '');
     setEditPaymentPromptText(config.payment_prompt_text?.[0] || '');
-    const mappedDestinations = config.destinations.map((destination) => ({
-      principal: destination.destination.toText(),
-      percentage: Number(destination.percentage),
-      convertToCycles: destination.convertToCycles,
-    }));
+    const mappedDestinations = config.destinations.map((destination) => {
+      if ('Principal' in destination.dest) {
+        const entry = destination.dest.Principal;
+        return {
+          input: entry.principal.toText(),
+          percentage: Number(destination.percentage),
+          convertToCycles: entry.convertToCycles,
+          isPrincipal: true,
+        };
+      }
+      const bytes = normalizeBytes(destination.dest.AccountId);
+      return {
+        input: bytesToHex(bytes),
+        percentage: Number(destination.percentage),
+        convertToCycles: false,
+        isPrincipal: false,
+      };
+    });
     setEditDestinations(
       mappedDestinations.length > 0
         ? mappedDestinations
-        : [{ principal: '', percentage: 100, convertToCycles: false }],
+        : [
+            {
+              input: '',
+              percentage: 100,
+              convertToCycles: false,
+              isPrincipal: true,
+            },
+          ],
     );
   };
 
@@ -298,23 +357,49 @@ function App() {
       alert('At least one destination must have a percentage greater than 0.');
       return;
     }
-    if (
-      selectedDestinations.some(
-        (destination) => !destination.principal.trim(),
-      )
-    ) {
-      alert('Please provide a principal for every destination with a percentage.');
+    if (selectedDestinations.some((destination) => !destination.input.trim())) {
+      alert('Please provide a value for every destination with a percentage.');
       return;
     }
+
     try {
       Principal.fromText(editTargetCanister.trim());
-      selectedDestinations.forEach((destination) => {
-        Principal.fromText(destination.principal.trim());
-      });
     } catch (error) {
-      alert('Invalid principal format. Please check the canister and destinations.');
+      alert('Invalid target canister principal.');
       return;
     }
+
+    const destVariants = [];
+    for (const destination of selectedDestinations) {
+      const input = destination.input.trim();
+      if (isAccountId(input)) {
+        if (destination.convertToCycles) {
+          alert('Convert to cycles not supported for Account IDs.');
+          return;
+        }
+        destVariants.push({
+          percentage: BigInt(destination.percentage),
+          dest: { AccountId: hexToBytes(input) },
+        });
+      } else {
+        try {
+          const principal = Principal.fromText(input);
+          destVariants.push({
+            percentage: BigInt(destination.percentage),
+            dest: {
+              Principal: {
+                principal,
+                convertToCycles: destination.convertToCycles,
+              },
+            },
+          });
+        } catch (error) {
+          alert(`Invalid principal: ${input}`);
+          return;
+        }
+      }
+    }
+
     const totalSeconds =
       parseDurationPart(editSessionDays) * 86400 +
       parseDurationPart(editSessionHours) * 3600 +
@@ -336,19 +421,22 @@ function App() {
       price_e8s: [priceE8s],
       target_canister: [Principal.fromText(editTargetCanister.trim())],
       session_duration_ns: [sessionDurationNs],
-      destinations: [
-        selectedDestinations.map((destination) => ({
-          destination: Principal.fromText(destination.principal.trim()),
-          percentage: BigInt(destination.percentage),
-          convertToCycles: destination.convertToCycles,
-        })),
-      ],
+      destinations: [destVariants],
       login_prompt_text: toOptionalText(editLoginPromptText),
       payment_prompt_text: toOptionalText(editPaymentPromptText),
     };
     await actor.updatePaywall(id, updates);
     setEditingId(null);
     await fetchOwnedPaywalls();
+  };
+
+  const formatDestinationLabel = (destination) => {
+    if ('Principal' in destination.dest) {
+      const entry = destination.dest.Principal;
+      return `${entry.principal.toText()} (${entry.convertToCycles ? 'Cycles' : 'ICP'})`;
+    }
+    const bytes = normalizeBytes(destination.dest.AccountId);
+    return `${bytesToHex(bytes)} (Account ID)`;
   };
 
   return (
@@ -426,19 +514,26 @@ function App() {
                     >
                       <strong>Destination {index + 1}</strong>
                       <label>
-                        Principal
+                        Destination value (Principal or Account ID)
                         <input
                           type="text"
-                          value={destination.principal}
+                          value={destination.input}
                           onChange={(event) => {
                             const next = [...destinations];
+                            const value = event.target.value;
+                            const trimmed = value.trim();
+                            const accountId = isAccountId(trimmed);
                             next[index] = {
                               ...next[index],
-                              principal: event.target.value,
+                              input: value,
+                              isPrincipal: !accountId,
+                              convertToCycles: accountId
+                                ? false
+                                : next[index].convertToCycles,
                             };
                             setDestinations(next);
                           }}
-                          placeholder="aaaaa-aa"
+                          placeholder="Principal (aaaaa-aa) or Account ID (64 hex)"
                           required={destination.percentage > 0}
                         />
                       </label>
@@ -461,21 +556,23 @@ function App() {
                           required
                         />
                       </label>
-                      <label>
-                        Convert to cycles
-                        <input
-                          type="checkbox"
-                          checked={destination.convertToCycles}
-                          onChange={(event) => {
-                            const next = [...destinations];
-                            next[index] = {
-                              ...next[index],
-                              convertToCycles: event.target.checked,
-                            };
-                            setDestinations(next);
-                          }}
-                        />
-                      </label>
+                      {destination.isPrincipal && (
+                        <label>
+                          Convert to cycles
+                          <input
+                            type="checkbox"
+                            checked={destination.convertToCycles}
+                            onChange={(event) => {
+                              const next = [...destinations];
+                              next[index] = {
+                                ...next[index],
+                                convertToCycles: event.target.checked,
+                              };
+                              setDestinations(next);
+                            }}
+                          />
+                        </label>
+                      )}
                       {destinations.length > 1 && (
                         <button
                           type="button"
@@ -496,7 +593,12 @@ function App() {
                       onClick={() =>
                         setDestinations([
                           ...destinations,
-                          { principal: '', percentage: 0, convertToCycles: false },
+                          {
+                            input: '',
+                            percentage: 0,
+                            convertToCycles: false,
+                            isPrincipal: true,
+                          },
                         ])
                       }
                     >
@@ -511,11 +613,10 @@ function App() {
                   <p key={`split-preview-${index}`} className="hint">
                     Split {index + 1}:{' '}
                     {formatIcp(
-                      (createNetE8s *
-                        BigInt(destination.percentage || 0)) /
-                      100n,
+                      (createNetE8s * BigInt(destination.percentage || 0)) /
+                        100n,
                     )}{' '}
-                    ICP to {destination.principal || 'destination principal'}
+                    ICP to {destination.input || 'destination'}
                   </p>
                 ))}
               <p className="hint">
@@ -686,9 +787,7 @@ function App() {
                       <ul className="list">
                         {config.destinations.map((destination, index) => (
                           <li key={`${id}-destination-${index}`}>
-                            {destination.destination.toText()} (
-                            {Number(destination.percentage)}%,{' '}
-                            {destination.convertToCycles ? 'Cycles' : 'ICP'})
+                            {formatDestinationLabel(destination)} ({Number(destination.percentage)}%)
                           </li>
                         ))}
                       </ul>
@@ -852,19 +951,26 @@ function App() {
                                 >
                                   <strong>Destination {index + 1}</strong>
                                   <label>
-                                    Principal
+                                    Destination value (Principal or Account ID)
                                     <input
                                       type="text"
-                                      value={destination.principal}
+                                      value={destination.input}
                                       onChange={(event) => {
                                         const next = [...editDestinations];
+                                        const value = event.target.value;
+                                        const trimmed = value.trim();
+                                        const accountId = isAccountId(trimmed);
                                         next[index] = {
                                           ...next[index],
-                                          principal: event.target.value,
+                                          input: value,
+                                          isPrincipal: !accountId,
+                                          convertToCycles: accountId
+                                            ? false
+                                            : next[index].convertToCycles,
                                         };
                                         setEditDestinations(next);
                                       }}
-                                      placeholder="aaaaa-aa"
+                                      placeholder="Principal (aaaaa-aa) or Account ID (64 hex)"
                                       required={destination.percentage > 0}
                                     />
                                   </label>
@@ -890,21 +996,23 @@ function App() {
                                       required
                                     />
                                   </label>
-                                  <label>
-                                    Convert to cycles
-                                    <input
-                                      type="checkbox"
-                                      checked={destination.convertToCycles}
-                                      onChange={(event) => {
-                                        const next = [...editDestinations];
-                                        next[index] = {
-                                          ...next[index],
-                                          convertToCycles: event.target.checked,
-                                        };
-                                        setEditDestinations(next);
-                                      }}
-                                    />
-                                  </label>
+                                  {destination.isPrincipal && (
+                                    <label>
+                                      Convert to cycles
+                                      <input
+                                        type="checkbox"
+                                        checked={destination.convertToCycles}
+                                        onChange={(event) => {
+                                          const next = [...editDestinations];
+                                          next[index] = {
+                                            ...next[index],
+                                            convertToCycles: event.target.checked,
+                                          };
+                                          setEditDestinations(next);
+                                        }}
+                                      />
+                                    </label>
+                                  )}
                                   {editDestinations.length > 1 && (
                                     <button
                                       type="button"
@@ -928,9 +1036,10 @@ function App() {
                                     setEditDestinations([
                                       ...editDestinations,
                                       {
-                                        principal: '',
+                                        input: '',
                                         percentage: 0,
                                         convertToCycles: false,
+                                        isPrincipal: true,
                                       },
                                     ])
                                   }
@@ -948,10 +1057,9 @@ function App() {
                                 {formatIcp(
                                   (editNetE8s *
                                     BigInt(destination.percentage || 0)) /
-                                  100n,
+                                    100n,
                                 )}{' '}
-                                ICP to{' '}
-                                {destination.principal || 'destination principal'}
+                                ICP to {destination.input || 'destination'}
                               </p>
                             ))}
                           <label>

@@ -11,14 +11,16 @@ body {
   font-family: 'Inter', system-ui, sans-serif;
   background: #f4f6fb;
   color: #1d1f27;
+  -webkit-text-size-adjust: 100%;
 }
 
 .app {
   max-width: 960px;
   margin: 0 auto;
-  padding: 40px 24px 80px;
+  padding: 40px 24px 120px;
   display: grid;
   gap: 24px;
+  min-height: 100vh;
 }
 
 .hero {
@@ -43,7 +45,8 @@ body {
 
 .hero-logo {
   display: block;
-  width: min(600px, 100%);
+  width: min(85vw, 420px);
+  max-width: 100%;
   height: auto;
   margin: 0 auto 16px;
 }
@@ -124,12 +127,12 @@ input {
   padding: 10px 12px;
   border-radius: 10px;
   border: 1px solid #d5d9e6;
-  font-size: 0.95rem;
+  font-size: 16px;
 }
 
 button {
   border: none;
-  padding: 10px 16px;
+  padding: 12px 16px;
   border-radius: 10px;
   background: #0f62fe;
   color: #fff;
@@ -141,6 +144,11 @@ button {
 
 button:hover {
   transform: translateY(-1px);
+}
+
+button:active {
+  transform: scale(0.97);
+  transition: transform 0.08s ease;
 }
 
 button:disabled {
@@ -160,6 +168,20 @@ button:disabled {
   padding: 6px 10px;
   font-size: 0.8rem;
   box-shadow: none;
+}
+
+button,
+a,
+input[type='button'],
+input[type='submit'],
+input[type='reset'],
+label {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: rgba(15, 98, 254, 0.18);
 }
 
 .stack {
@@ -188,6 +210,12 @@ button:disabled {
 
 .time-inputs input {
   min-width: 120px;
+}
+
+input,
+textarea,
+select {
+  font-size: 16px;
 }
 
 .mono {

@@ -466,9 +466,45 @@ function App() {
             </button>
           </div>
         ) : (
-          <button type="button" onClick={handleLogin}>
-            Sign in with Internet Identity
-          </button>
+          <div className="stack">
+            <button type="button" onClick={handleLogin}>
+              Sign in with Internet Identity
+            </button>
+            <div className="stack">
+              <h3>Build paywalls that monetize any web experience.</h3>
+              <p className="hint">
+                IC Paywall Builder helps you ship ICP paywalls in minutes. Add
+                a script tag to your site or game, set pricing and access
+                duration, and start charging visitors whether your project is
+                hand-built or vibe coded.
+              </p>
+              <ul className="list">
+                <li>
+                  <strong>Drop-in integration:</strong> Generate a simple embed
+                  script and enforce access checks throughout your UI so only
+                  paying users continue.
+                </li>
+                <li>
+                  <strong>Flexible access windows:</strong> Offer lightning-fast
+                  sessions (under a minute), day passes, or monthly and annual
+                  subscriptions by setting the exact duration after payment.
+                </li>
+                <li>
+                  <strong>Cycles automation:</strong> Route all or part of every
+                  payment into cycles and top up the canisters you specify so
+                  your apps stay fueled.
+                </li>
+                <li>
+                  <strong>Internet Identity ready:</strong> Users authenticate,
+                  pay, and get instant access while you collect ICP.
+                </li>
+              </ul>
+              <p className="hint">
+                Sign in to spin up your first paywall and start earning from
+                your web apps, games, or communities today.
+              </p>
+            </div>
+          </div>
         )}
       </section>
 
@@ -626,10 +662,12 @@ function App() {
                 accept ICP or cycles.
               </p>
               <label>
-                Target canister principal
+                Associated location identifier (Principal)
                 <span className="hint">
-                  Canister to associate with this paywall for future audit or
-                  notification hooks.
+                  Enter any Principal that helps you remember where this
+                  paywall is used (for example, your project canister ID or
+                  another meaningful identifier). This is for your reference
+                  and future audit or notification hooks.
                 </span>
                 <input
                   type="text"
@@ -884,7 +922,12 @@ function App() {
                             </span>
                           </label>
                           <label>
-                            Edit Target Canister
+                            Edit associated location identifier (Principal)
+                            <span className="hint">
+                              Update the Principal that helps you remember
+                              where this paywall is used (for example, your
+                              project canister ID or a custom identifier).
+                            </span>
                             <input
                               type="text"
                               value={editTargetCanister}

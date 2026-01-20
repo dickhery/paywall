@@ -1,0 +1,39 @@
+License for IC Paywall Application
+
+Copyright (c) 2026 Richard Hery (or applicable copyright holder)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+1. The above copyright notice and this permission notice shall be included in all
+   copies or substantial portions of the Software.
+
+2. Any deployment, use, or distribution of the Software (including modified versions)
+   must retain and enforce the 1% fee mechanism as implemented in the original code.
+   Specifically:
+   - The fee must be calculated as max(1% of the payment price, 0.001 ICP) for each
+     transaction processed through the paywall.
+   - This fee must be sent to the account identifier:
+     2a4abcd2278509654f9a26b885ecb49b8619bffe58a6acb2e3a5e3c7fb96020d
+   - If the fee mechanism is modified or removed, you must ensure that an equivalent
+     1% of all payments collected (with a minimum of 0.001 ICP per transaction) is
+     manually or automatically sent to the specified account.
+   - Failure to comply with this condition voids the permissions granted by this license.
+
+3. You may deploy your own version of the Software, but all deployments must comply
+   with the fee requirement above. This includes any forked or modified repositories.
+
+4. Viewing, checking, and studying the code is explicitly permitted without any
+   restrictions, as long as no deployment or commercial use violates the fee condition.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

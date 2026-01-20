@@ -124,13 +124,13 @@ const buildOverlay = (onLogin) => {
   logoLink.target = '_blank';
   logoLink.rel = 'noopener noreferrer';
   logoLink.style.cssText =
-    'position:absolute;bottom:40px;left:50%;transform:translateX(-50%);text-decoration:none;';
+    'position:absolute;bottom:16px;left:50%;transform:translateX(-50%);text-decoration:none;';
 
   const logoImg = document.createElement('img');
   logoImg.src = 'https://4kz7m-7iaaa-aaaab-adm5a-cai.icp0.io/logo.png';
   logoImg.alt = 'IC Paywall logo';
   logoImg.style.cssText =
-    'width:30vw;max-width:300px;min-width:160px;height:auto;cursor:pointer;';
+    'width:24vw;max-width:240px;min-width:140px;height:auto;cursor:pointer;';
 
   logoLink.appendChild(logoImg);
   overlay.appendChild(logoLink);

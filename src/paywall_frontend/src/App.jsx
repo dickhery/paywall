@@ -885,7 +885,7 @@ function App() {
                             {`window.paywallHandshake(() => { /* logout or hide UI */ });`}
                           </code>{' '}
                           before rendering sensitive UI, and block access until it
-                          returns <code>true</code>.
+                          returns <code>true</code>. Re-call every 30 seconds.
                         </li>
                         <li>
                           For dynamic canisters, enforce server-side access in
@@ -896,8 +896,17 @@ function App() {
                         </li>
                         <li>
                           Re-check access periodically in your app (for example, every
-                          60 seconds) and invalidate the session if the handshake
+                          30 seconds) and invalidate the session if the handshake
                           fails.
+                        </li>
+                        <li>
+                          Add CORS headers if your site makes cross-origin requests:
+                          Access-Control-Allow-Origin: '*'.
+                        </li>
+                        <li>
+                          For ultimate security, host sensitive logic in canisters and
+                          use server-side <code>hasAccess</code> for all
+                          queries/updates.
                         </li>
                       </ul>
                       <p>

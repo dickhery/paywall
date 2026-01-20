@@ -82,10 +82,10 @@ persistent actor Paywall {
     convertToCycles : Bool;
   };
 
-  type Dest = variant {
-    Principal : DestPrincipal;
-    AccountId : Blob;
-  };
+  type Dest = {
+  #Principal : DestPrincipal;
+  #AccountId : Blob;
+};
 
   type Destination = {
     dest : Dest;

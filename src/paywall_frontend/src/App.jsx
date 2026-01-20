@@ -472,6 +472,46 @@ function App() {
         )}
       </section>
 
+      {!isAuthenticated && (
+        <section className="info-section">
+          <h2>Build paywalls for any ICP-powered experience</h2>
+          <p>
+            IC Paywall Builder helps you monetize websites, apps, and games on
+            the Internet Computer. Create a paywall, grab the script tag, and
+            drop it into any project you own, whether it&apos;s hand-coded or
+            vibe coded.
+          </p>
+          <div className="info-section-grid">
+            <div>
+              <h3>Plug-and-play enforcement</h3>
+              <p>
+                Generate an embed script, add it to your project, and gate
+                access with simple checks that verify payments before users can
+                continue.
+              </p>
+            </div>
+            <div>
+              <h3>Flexible access windows</h3>
+              <p>
+                Offer lightning-fast sessions under a minute, or set monthly and
+                annual access windows by configuring the post-payment duration.
+              </p>
+            </div>
+            <div>
+              <h3>Keep canisters funded</h3>
+              <p>
+                Route some or all ICP payments into cycles and automatically top
+                up the canisters you care about.
+              </p>
+            </div>
+          </div>
+          <p>
+            Authenticate above to start building paywalls, collecting ICP, and
+            keeping your decentralized apps running strong.
+          </p>
+        </section>
+      )}
+
       {isAuthenticated && (
         <>
           <section className="card">
@@ -626,10 +666,10 @@ function App() {
                 accept ICP or cycles.
               </p>
               <label>
-                Target canister principal
+                Associated principal
                 <span className="hint">
-                  Canister to associate with this paywall for future audit or
-                  notification hooks.
+                  Use any principal (canister or user) that helps you remember
+                  where this paywall is used.
                 </span>
                 <input
                   type="text"
@@ -884,7 +924,11 @@ function App() {
                             </span>
                           </label>
                           <label>
-                            Edit Target Canister
+                            Associated principal
+                            <span className="hint">
+                              Use any principal that helps you track where this
+                              paywall is used.
+                            </span>
                             <input
                               type="text"
                               value={editTargetCanister}

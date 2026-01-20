@@ -62,6 +62,47 @@ body {
   font-size: 1.4rem;
 }
 
+.info-section {
+  background: #fff;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 12px 24px rgba(15, 20, 55, 0.08);
+  display: grid;
+  gap: 16px;
+}
+
+.info-section h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: #0f62fe;
+}
+
+.info-section h3 {
+  margin: 0 0 8px;
+  font-size: 1.1rem;
+}
+
+.info-section p {
+  margin: 0;
+  color: #4a5168;
+  line-height: 1.6;
+  font-size: 0.95rem;
+}
+
+.info-section-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.info-section-grid > div {
+  padding: 16px;
+  border-radius: 12px;
+  background: #f5f8ff;
+  border: 1px solid #d9e4ff;
+  display: grid;
+  gap: 8px;
+}
+
 .form {
   display: grid;
   gap: 16px;

@@ -10,7 +10,8 @@
     "build": "tsc && vite build",
     "format": "prettier --write \"src/**/*.{json,js,jsx,ts,tsx,css,scss}\"",
     "deploy-local": "dfx deploy --network local",
-    "deploy-ic": "dfx deploy --network ic"
+    "deploy-ic": "npm run check-fee && dfx deploy --network ic",
+    "check-fee": "node src/check-fee.js"
   },
   "dependencies": {
     "@dfinity/agent": "^2.4.0",

@@ -118,6 +118,23 @@ const buildOverlay = (onLogin) => {
     <div id="paywall-error" style="display:none;margin-top:16px;color:#ef4444;"></div>
   `;
   overlay.appendChild(panel);
+
+  const logoLink = document.createElement('a');
+  logoLink.href = 'https://4kz7m-7iaaa-aaaab-adm5a-cai.icp0.io/';
+  logoLink.target = '_blank';
+  logoLink.rel = 'noopener noreferrer';
+  logoLink.style.cssText =
+    'position:absolute;bottom:16px;left:50%;transform:translateX(-50%);text-decoration:none;';
+
+  const logoImg = document.createElement('img');
+  logoImg.src = 'https://4kz7m-7iaaa-aaaab-adm5a-cai.icp0.io/logo.png';
+  logoImg.alt = 'IC Paywall logo';
+  logoImg.style.cssText =
+    'width:24vw;max-width:240px;min-width:140px;height:auto;cursor:pointer;';
+
+  logoLink.appendChild(logoImg);
+  overlay.appendChild(logoLink);
+
   overlay.querySelector('#paywall-login').addEventListener('click', onLogin);
   return overlay;
 };
@@ -665,6 +682,7 @@ const run = async () => {
         await new Promise((resolve, reject) => {
           authClient.login({
             identityProvider: II_URL,
+            maxTimeToLive: BigInt(8 * 60 * 60 * 1_000_000_000),
             onSuccess: resolve,
             onError: reject,
           });
@@ -677,10 +695,19 @@ const run = async () => {
           canisterId: backendId,
         });
 
-        const hasAccess = await authedActor.hasAccess(
-          identity.getPrincipal(),
-          paywallId,
-        );
+        let hasAccess = false;
+        try {
+          hasAccess = await authedActor.hasAccess(
+            identity.getPrincipal(),
+            paywallId,
+          );
+        } catch (error) {
+          console.error('Access check failed:', error);
+          errorMessage.textContent =
+            'Unable to verify access. Please log in again.';
+          errorMessage.style.display = 'block';
+          return;
+        }
         if (hasAccess) {
           revealContent(overlay);
           await scheduleAccessTimers(authedActor, identity);

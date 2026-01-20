@@ -13,6 +13,7 @@ import Principal "mo:base/Principal";
 import Random "mo:base/Random";
 import Text "mo:base/Text";
 import Time "mo:base/Time";
+
 persistent actor Paywall {
   type Account = {
     owner : Principal;
@@ -76,10 +77,14 @@ persistent actor Paywall {
     transfer : shared LegacyTransferArgs -> async LegacyTransferResult;
   };
 
+  type Dest = variant {
+    Principal : record { principal : Principal; convertToCycles : Bool };
+    AccountId : Blob;
+  };
+
   type Destination = {
-    destination : Principal;
+    dest : Dest;
     percentage : Nat;
-    convertToCycles : Bool;
   };
 
   type PaywallConfig = {
@@ -91,15 +96,17 @@ persistent actor Paywall {
     payment_prompt_text : ?Text;
     usage_count : Nat;
   };
+
   type PaywallConfigStable = {
     price_e8s : Nat;
     target_canister : Principal;
     session_duration_ns : Nat;
-    destinations : [Destination];
+    destinations : [(Dest, Nat)];
     login_prompt_text : ?Text;
     payment_prompt_text : ?Text;
     usage_count : ?Nat;
   };
+
   type PaywallUpdate = {
     price_e8s : ?Nat;
     target_canister : ?Principal;
@@ -166,6 +173,7 @@ persistent actor Paywall {
   let paywallMinFeeE8s : Nat = 100_000;
   let feeAccountIdentifierHex : Text =
     "2a4abcd2278509654f9a26b885ecb49b8619bffe58a6acb2e3a5e3c7fb96020d";
+
   private func hexToNibble(char : Char) : ?Nat8 {
     let code = Char.toNat32(char);
     if (code >= 48 and code <= 57) {
@@ -211,13 +219,16 @@ persistent actor Paywall {
         paywallConfigs.entries(),
         func(entry : (Text, PaywallConfig)) : (Text, PaywallConfigStable) {
           let config = entry.1;
+          let stableDests = Array.map<Destination, (Dest, Nat)>(config.destinations, func(d) {
+            (d.dest, d.percentage);
+          });
           (
             entry.0,
             {
               price_e8s = config.price_e8s;
               target_canister = config.target_canister;
               session_duration_ns = config.session_duration_ns;
-              destinations = config.destinations;
+              destinations = stableDests;
               login_prompt_text = config.login_prompt_text;
               payment_prompt_text = config.payment_prompt_text;
               usage_count = ?config.usage_count;
@@ -251,11 +262,14 @@ persistent actor Paywall {
         case (?count) count;
         case null 0;
       };
+      let dests = Array.map<(Dest, Nat), Destination>(config.destinations, func(pair) {
+        { dest = pair.0; percentage = pair.1 };
+      });
       paywallConfigs.put(id, {
         price_e8s = config.price_e8s;
         target_canister = config.target_canister;
         session_duration_ns = config.session_duration_ns;
-        destinations = config.destinations;
+        destinations = dests;
         login_prompt_text = config.login_prompt_text;
         payment_prompt_text = config.payment_prompt_text;
         usage_count = usageCount;
@@ -332,8 +346,8 @@ persistent actor Paywall {
     Blob.fromArray(Array.freeze(output));
   };
 
-  private func buildMintSubaccount(destination : Principal) : ?Blob {
-    let principalBytes = Blob.toArray(Principal.toBlob(destination));
+  private func buildMintSubaccount(principal : Principal) : ?Blob {
+    let principalBytes = Blob.toArray(Principal.toBlob(principal));
     if (principalBytes.size() > 31) {
       return null;
     };
@@ -347,8 +361,8 @@ persistent actor Paywall {
     ?Blob.fromArray(Array.freeze(subaccount));
   };
 
-  private func buildTopUpSubaccount(destination : Principal) : ?Blob {
-    let principalBytes = Blob.toArray(Principal.toBlob(destination));
+  private func buildTopUpSubaccount(principal : Principal) : ?Blob {
+    let principalBytes = Blob.toArray(Principal.toBlob(principal));
     if (principalBytes.size() > 31) {
       return null;
     };
@@ -362,17 +376,17 @@ persistent actor Paywall {
     ?Blob.fromArray(Array.freeze(subaccount));
   };
 
-  private func isCanister(destination : Principal) : Bool {
-    Blob.toArray(Principal.toBlob(destination)).size() == 10;
+  private func isCanister(principal : Principal) : Bool {
+    Blob.toArray(Principal.toBlob(principal)).size() == 10;
   };
 
   private func mintCycles(
     amount : Nat,
     from_subaccount : ?Blob,
-    destination : Principal,
+    principal : Principal,
   ) : async PaymentResult {
-    let ?cmcSubaccount = buildMintSubaccount(destination) else {
-      return #Err("Invalid mint subaccount for destination " # Principal.toText(destination));
+    let ?cmcSubaccount = buildMintSubaccount(principal) else {
+      return #Err("Invalid mint subaccount for principal " # Principal.toText(principal));
     };
     let memo = Blob.fromArray([0x4D, 0x49, 0x4E, 0x54, 0x00, 0x00, 0x00, 0x00]);
     let transferResult = await ledger.icrc1_transfer({
@@ -409,10 +423,10 @@ persistent actor Paywall {
   private func topUpCanister(
     amount : Nat,
     from_subaccount : ?Blob,
-    destination : Principal,
+    principal : Principal,
   ) : async PaymentResult {
-    let ?cmcSubaccount = buildTopUpSubaccount(destination) else {
-      return #Err("Invalid top-up subaccount for destination " # Principal.toText(destination));
+    let ?cmcSubaccount = buildTopUpSubaccount(principal) else {
+      return #Err("Invalid top-up subaccount for principal " # Principal.toText(principal));
     };
     let memo = Blob.fromArray([0x54, 0x50, 0x55, 0x50, 0x00, 0x00, 0x00, 0x00]);
     let transferResult = await ledger.icrc1_transfer({
@@ -434,7 +448,7 @@ persistent actor Paywall {
       case (#Ok(blockIndex)) {
         let notifyResult = await cmc.notify_top_up({
           block_index = Nat64.fromNat(blockIndex);
-          canister_id = destination;
+          canister_id = principal;
         });
         switch (notifyResult) {
           case (#Err(err)) {
@@ -450,40 +464,61 @@ persistent actor Paywall {
   private func sendPayment(
     amount : Nat,
     from_subaccount : ?Blob,
-    destination : Principal,
-    convertToCycles : Bool,
+    dest : Dest,
   ) : async PaymentResult {
-    if (not convertToCycles) {
-      Debug.print("Sending direct ICP transfer to " # Principal.toText(destination));
-      let transferResult = await ledger.icrc1_transfer({
-        to = {
-          owner = destination;
-          subaccount = null;
+    switch (dest) {
+      case (#Principal p) {
+        if (p.convertToCycles) {
+          let canisterTarget = isCanister(p.principal);
+          Debug.print(
+            "Convert to cycles enabled. Destination is canister format: " #
+            (if (canisterTarget) { "true" } else { "false" }) # " (" #
+            Principal.toText(p.principal) # ")",
+          );
+          if (canisterTarget) {
+            await topUpCanister(amount, from_subaccount, p.principal);
+          } else {
+            await mintCycles(amount, from_subaccount, p.principal);
+          };
+        } else {
+          Debug.print("Sending direct ICP transfer to " # Principal.toText(p.principal));
+          let transferResult = await ledger.icrc1_transfer({
+            to = {
+              owner = p.principal;
+              subaccount = null;
+            };
+            amount;
+            from_subaccount;
+            fee = ?icpTransferFee;
+            memo = null;
+            created_at_time = null;
+          });
+          switch (transferResult) {
+            case (#Err(err)) {
+              Debug.print("Direct transfer failed: " # debug_show(err));
+              #Err("Direct transfer failed: " # debug_show(err));
+            };
+            case (#Ok(_)) #Ok;
+          };
         };
-        amount;
-        from_subaccount;
-        fee = ?icpTransferFee;
-        memo = null;
-        created_at_time = null;
-      });
-      switch (transferResult) {
-        case (#Err(err)) {
-          Debug.print("Direct transfer failed: " # debug_show(err));
-          #Err("Direct transfer failed: " # debug_show(err));
-        };
-        case (#Ok(_)) #Ok;
       };
-    } else {
-      let canisterTarget = isCanister(destination);
-      Debug.print(
-        "Convert to cycles enabled. Destination is canister format: " #
-        (if (canisterTarget) { "true" } else { "false" }) # " (" #
-        Principal.toText(destination) # ")",
-      );
-      if (canisterTarget) {
-        await topUpCanister(amount, from_subaccount, destination);
-      } else {
-        await mintCycles(amount, from_subaccount, destination);
+      case (#AccountId accId) {
+        Debug.print("Sending legacy ICP transfer to account ID");
+        let transferResult = await ledger.transfer({
+          to = accId;
+          amount = { e8s = Nat64.fromNat(amount) };
+          fee = { e8s = Nat64.fromNat(icpTransferFee) };
+          memo = 0;
+          from_subaccount;
+          created_at_time = null;
+        });
+        switch (transferResult) {
+          case (#Err(err)) {
+            Debug.print("Legacy transfer failed: " # debug_show(err));
+            #Err("Legacy transfer failed: " # debug_show(err));
+          };
+          case (#Ok(_)) #Ok;
+        };
       };
     };
   };
@@ -628,8 +663,7 @@ persistent actor Paywall {
         let paidResult = await sendPayment(
           amount,
           ?userSubaccount,
-          destination.destination,
-          destination.convertToCycles,
+          destination.dest,
         );
         switch (paidResult) {
           case (#Err(message)) {
@@ -710,8 +744,7 @@ persistent actor Paywall {
         let paidResult = await sendPayment(
           amount,
           ?subaccount,
-          destination.destination,
-          destination.convertToCycles,
+          destination.dest,
         );
         switch (paidResult) {
           case (#Err(message)) {

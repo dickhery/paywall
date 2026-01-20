@@ -63,17 +63,19 @@ const unwrapSubaccount = (subaccount) => {
 };
 
 const idlFactory = ({ IDL }) => {
+  const Dest = IDL.Variant({
+    Principal: IDL.Record({ principal: IDL.Principal, convertToCycles: IDL.Bool }),
+    AccountId: IDL.Vec(IDL.Nat8),
+  });
+  const Destination = IDL.Record({
+    dest: Dest,
+    percentage: IDL.Nat,
+  });
   const PaywallConfig = IDL.Record({
     price_e8s: IDL.Nat,
     target_canister: IDL.Principal,
     session_duration_ns: IDL.Nat,
-    destinations: IDL.Vec(
-      IDL.Record({
-        destination: IDL.Principal,
-        percentage: IDL.Nat,
-        convertToCycles: IDL.Bool,
-      }),
-    ),
+    destinations: IDL.Vec(Destination),
     login_prompt_text: IDL.Opt(IDL.Text),
     payment_prompt_text: IDL.Opt(IDL.Text),
   });

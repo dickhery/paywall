@@ -78,7 +78,7 @@ const idlFactory = ({ IDL }) => {
   });
   const PaywallConfig = IDL.Record({
     price_e8s: IDL.Nat,
-    target_canister: IDL.Principal,
+    target_url: IDL.Text,
     session_duration_ns: IDL.Nat,
     destinations: IDL.Vec(Destination),
     login_prompt_text: IDL.Opt(IDL.Text),
@@ -483,6 +483,15 @@ const restoreContent = () => {
   document.body.style.visibility = '';
 };
 
+const ensureBodyReady = () =>
+  new Promise((resolve) => {
+    if (document.body) {
+      resolve();
+      return;
+    }
+    window.addEventListener('DOMContentLoaded', () => resolve(), { once: true });
+  });
+
 const startOverlayObservers = (overlay) => {
   if (!overlayObserver) {
     overlayObserver = new MutationObserver(() => {
@@ -643,6 +652,8 @@ const run = async () => {
         },
       );
     };
+
+    await ensureBodyReady();
 
     const overlay = buildOverlay(async () => {
       const loading = overlay.querySelector('#paywall-loading');

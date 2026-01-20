@@ -77,8 +77,13 @@ persistent actor Paywall {
     transfer : shared LegacyTransferArgs -> async LegacyTransferResult;
   };
 
+  type DestPrincipal = {
+    principal : Principal;
+    convertToCycles : Bool;
+  };
+
   type Dest = variant {
-    Principal : { principal : Principal; convertToCycles : Bool };
+    Principal : DestPrincipal;
     AccountId : Blob;
   };
 

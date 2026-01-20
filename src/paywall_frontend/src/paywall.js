@@ -206,13 +206,13 @@ const buildOverlay = (onLogin) => {
   overlay.style.cssText = OVERLAY_STYLE;
   const panel = document.createElement('div');
   panel.style.cssText =
-    'background:#111827;padding:32px;border-radius:16px;max-width:480px;width:100%;text-align:center;box-shadow:0 20px 40px rgba(0,0,0,0.45);';
+    'background:#111827;padding:32px;border-radius:16px;width:min(92vw,520px);max-height:90vh;overflow:auto;text-align:center;box-shadow:0 20px 40px rgba(0,0,0,0.45);';
   panel.id = 'paywall-panel';
   panel.innerHTML = `
-    <h2 style="margin:0 0 12px;font-size:24px;">Payment required</h2>
-    <p style="margin:0 0 16px;font-size:16px;" id="paywall-login-prompt">Log in to check access.</p>
-    <button id="paywall-login" style="background:#4f46e5;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:16px;cursor:pointer;margin-bottom:12px;">Log in to check access</button>
-    <div id="paywall-details" style="display:none;margin-top:16px;text-align:left;font-size:14px;"></div>
+    <h2 style="margin:0 0 12px;font-size:clamp(20px,5.5vw,26px);">Payment required</h2>
+    <p style="margin:0 0 16px;font-size:clamp(15px,4.2vw,18px);" id="paywall-login-prompt">Log in to check access.</p>
+    <button id="paywall-login" style="background:#4f46e5;color:#fff;border:none;border-radius:10px;padding:12px 16px;font-size:clamp(15px,4.2vw,18px);cursor:pointer;margin-bottom:12px;min-height:44px;">Log in to check access</button>
+    <div id="paywall-details" style="display:none;margin-top:16px;text-align:left;font-size:clamp(14px,3.8vw,16px);"></div>
     <div id="paywall-loading" style="display:none;margin-top:16px;color:#9ca3af;">Loading...</div>
     <div id="paywall-error" style="display:none;margin-top:16px;color:#ef4444;"></div>
     <p id="tamper-warning" style="display:none;color:#ef4444;font-weight:bold;">Tampering detected! Access blocked.</p>

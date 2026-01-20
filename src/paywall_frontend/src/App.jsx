@@ -117,6 +117,33 @@ function App() {
     return process.env.DFX_IDENTITY_PROVIDER || MAINNET_II_URL;
   }, []);
 
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const viewportMeta = document.querySelector('meta[name="viewport"]');
+    if (!viewportMeta) return;
+
+    const baseContent =
+      'width=device-width, initial-scale=1.0, viewport-fit=cover';
+
+    const resetZoom = () => {
+      viewportMeta.setAttribute('content', baseContent);
+      document.documentElement.style.scrollBehavior = 'auto';
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      requestAnimationFrame(() => {
+        viewportMeta.setAttribute('content', baseContent);
+      });
+    };
+
+    const timeoutId = window.setTimeout(() => {
+      resetZoom();
+      window.setTimeout(resetZoom, 200);
+    }, 120);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [isAuthenticated]);
+
   const getActor = useCallback(
     async (client) => {
       const identity = client?.getIdentity();

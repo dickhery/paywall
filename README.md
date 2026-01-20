@@ -1,59 +1,212 @@
-# `paywall`
+# IC Paywall: Secure ICP Payments for Web Projects
 
-Welcome to your new `paywall` project and to the Internet Computer development community. By default, creating a new project adds this README and some template files to your project directory. You can edit these template files to customize your project and to include your own code to speed up the development cycle.
+[![IC Paywall Logo](/src/paywall_frontend/public/logo.png)](https://4kz7m-7iaaa-aaaab-adm5a-cai.icp0.io/)
 
-To get started, you might want to explore the project directory structure and the default configuration file. Working with this project in your development environment will not affect any production deployment or identity tokens.
+IC Paywall is a decentralized application (dApp) built on the Internet Computer Protocol (ICP) blockchain. It allows users to create customizable paywalls for their web projects, charging visitors in ICP tokens for access. Payments can be split across multiple destinations (principals or account IDs), with options to convert ICP to cycles for canister top-ups. The app generates embeddable script tags for easy integration into websites or dApps, enforcing access controls via Internet Identity authentication and ICP ledger transactions.
 
-To learn more before you start working with `paywall`, see the following documentation available online:
+Key features:
+- **Paywall Creation**: Set ICP price, session duration, custom prompts, and payment splits.
+- **Payment Handling**: Uses the ICP ledger for secure, on-chain transfers.
+- **Cycle Conversion**: Automatically convert payments to cycles via the Cycles Minting Canister (CMC).
+- **Integration**: Client-side script for frontend enforcement; backend checks for integrity.
+- **User Wallets**: Each user gets a derived subaccount for deposits and payments.
 
-- [Quick Start](https://internetcomputer.org/docs/current/developer-docs/setup/deploy-locally)
-- [SDK Developer Tools](https://internetcomputer.org/docs/current/developer-docs/setup/install)
-- [Motoko Programming Language Guide](https://internetcomputer.org/docs/current/motoko/main/motoko)
-- [Motoko Language Quick Reference](https://internetcomputer.org/docs/current/motoko/main/language-manual)
+The app is deployed on ICP mainnet:
+- Frontend (Paywall Builder): [https://4kz7m-7iaaa-aaaab-adm5a-cai.icp0.io/](https://4kz7m-7iaaa-aaaab-adm5a-cai.icp0.io/)
+- Backend Canister ID: 4d2uq-jaaaa-aaaab-adm4q-cai
 
-If you want to start working on your project right away, you might want to try the following commands:
+## Table of Contents
 
-```bash
-cd paywall/
-dfx help
-dfx canister --help
-```
+- [Prerequisites](#prerequisites)
+- [Installation and Setup](#installation-and-setup)
+- [Deployment](#deployment)
+- [Using the Paywall Builder](#using-the-paywall-builder)
+- [Integrating the Paywall Script](#integrating-the-paywall-script)
+- [Strengthening Projects for Integrity](#strengthening-projects-for-integrity)
+- [Editing and Deleting Paywalls](#editing-and-deleting-paywalls)
+- [How It Works](#how-it-works)
+- [Common Issues and Troubleshooting](#common-issues-and-troubleshooting)
+- [Contributing](#contributing)
+- [License](#license)
 
-## Running the project locally
+## Prerequisites
 
-If you want to test your project locally, you can use the following commands:
+To run or deploy IC Paywall, ensure your system meets these requirements:
 
-```bash
-# Starts the replica, running in the background
-dfx start --background
+- **DFX SDK**: Version 0.29.2 or later. Install from the [DFINITY SDK documentation](https://internetcomputer.org/docs/current/developer-docs/getting-started/install/).
+- **Node.js and npm**: Version 16+ and 7+ respectively. Download from [nodejs.org](https://nodejs.org/).
+- **Git**: For cloning the repository.
+- **ICP Wallet**: For testing payments (e.g., NNS dApp or Plug Wallet).
+- **Internet Identity**: Required for authentication in the app and paywalls.
 
-# Deploys your canisters to the replica and generates your candid interface
-dfx deploy
-```
+## Installation and Setup
 
-Once the job completes, your application will be available at `http://localhost:4943?canisterId={asset_canister_id}`.
+1. **Clone the Repository**:
+   ```
+   git clone https://github.com/dickhery/paywall.git
+   cd paywall
+   ```
 
-If you have made changes to your backend canister, you can generate a new candid interface with
+2. **Install Dependencies**:
+   ```
+   npm install
+   ```
+   This installs all Node.js packages for the frontend and prepares the project.
 
-```bash
-npm run generate
-```
+3. **Generate Declarations** (Optional, but recommended for development):
+   ```
+   dfx generate
+   ```
+   This generates TypeScript declarations for the Motoko backend.
 
-at any time. This is recommended before starting the frontend development server, and will be run automatically any time you run `dfx deploy`.
+4. **Set Up Environment Variables** (Optional):
+   - The project uses a `.env` file for canister IDs and network settings. A sample is provided; customize as needed for local vs. mainnet.
 
-If you are making frontend changes, you can start a development server with
+## Deployment
 
-```bash
-npm start
-```
+### Local Deployment
 
-Which will start a server at `http://localhost:8080`, proxying API requests to the replica at port 4943.
+1. Start the local ICP replica:
+   ```
+   dfx start --clean --background
+   ```
 
-### Note on frontend environment variables
+2. Deploy the canisters:
+   ```
+   dfx deploy --network local
+   ```
+   - This deploys the backend (`paywall_backend`), frontend (`paywall_frontend`), and Internet Identity (for local testing).
 
-If you are hosting frontend code somewhere without using DFX, you may need to make one of the following adjustments to ensure your project does not fetch the root key in production:
+3. Access the local frontend at `http://localhost:4943/?canisterId=<frontend-canister-id>` (find IDs in `.dfx/local/canister_ids.json`).
 
-- set`DFX_NETWORK` to `ic` if you are using Webpack
-- use your own preferred method to replace `process.env.DFX_NETWORK` in the autogenerated declarations
-  - Setting `canisters -> {asset_canister_id} -> declarations -> env_override to a string` in `dfx.json` will replace `process.env.DFX_NETWORK` with the string in the autogenerated declarations
-- Write your own `createActor` constructor
+### Mainnet Deployment (ICP Network)
+
+1. Ensure you have cycles in your wallet for deployment.
+
+2. Deploy to ICP mainnet:
+   ```
+   dfx deploy --network ic
+   ```
+   - This uses the configuration in `dfx.json` and `.env`.
+   - Note: Mainnet deployment costs cycles; monitor via the ICP dashboard.
+
+3. After deployment, update your frontend URL and canister IDs in any integrations.
+
+For production, always verify canister IDs and use certified assets for security.
+
+## Using the Paywall Builder
+
+The Paywall Builder is the user interface for creating and managing paywalls. Access it at [https://4kz7m-7iaaa-aaaab-adm5a-cai.icp0.io/](https://4kz7m-7iaaa-aaaab-adm5a-cai.icp0.io/).
+
+### Steps to Create a Paywall
+
+1. **Sign In**: Use Internet Identity to authenticate. This links your principal to paywall ownership.
+
+2. **Configure Paywall**:
+   - **Price (ICP)**: Set the amount users pay (e.g., 0.1 ICP). Minimum ensures coverage of the 1% fee (or 0.001 ICP min).
+   - **Destination Splits**: Define up to 3 destinations for payments after fees.
+     - **Separate Destinations**: Payments can be split by percentage (must sum to 100%). Each destination receives its share.
+     - **Types**:
+       - **Principal**: Send to an ICP principal (e.g., wallet or canister). Enable "Convert to Cycles" to top up canister cycles via CMC.
+       - **Account ID**: Send to a 64-hex ledger account ID (legacy format; no cycle conversion).
+     - Example: 70% to your wallet principal, 30% to a canister for cycles.
+   - **Target Canister Principal**: Reference canister ID for the project (e.g., for audits or hooks; not used for enforcement).
+   - **Session Duration**: Set access time post-payment (days/hours/minutes/seconds).
+   - **Custom Prompts** (Optional): Login and payment messages for user experience.
+
+3. **Create and Generate Script**:
+   - Submit to create the paywall.
+   - Copy the generated `<script>` tag for integration.
+
+### Viewing and Managing Paywalls
+
+- **My Paywalls**: Lists your created paywalls with configs, usage counts (refreshable), and embed scripts.
+- **Usage Count**: Tracks payments; refresh to update from backend.
+
+## Integrating the Paywall Script
+
+Embed the generated script in your web project to enforce the paywall.
+
+### Script Placement
+
+- Add to the `<head>` of your HTML:
+  ```
+  <script type="module" data-paywall data-backend-id="4d2uq-jaaaa-aaaab-adm4q-cai" src="https://4kz7m-7iaaa-aaaab-adm5a-cai.icp0.io/paywall.js?paywallId=pw-0"></script>
+  ```
+- **Attributes**:
+  - `data-paywall`: Marks the script.
+  - `data-backend-id`: Backend canister ID (fixed for this app).
+- **Query Param**: `?paywallId=<your-id>` links to your config.
+
+### How the Script Works
+
+- On load, it checks access via backend query.
+- If no access: Shows overlay prompting login/payment.
+- Users deposit ICP to their derived subaccount, then pay.
+- On success: Hides overlay, grants access for session duration.
+
+### Common Issues
+
+- **CORS Headers**: If the script fails to load or communicate:
+  - Ensure your server allows cross-origin requests from `*.icp0.io`.
+  - Set headers: `Access-Control-Allow-Origin: *` (or specific ICP domains), `Access-Control-Allow-Methods: GET, OPTIONS`, `Access-Control-Allow-Headers: *`.
+  - For static sites (e.g., GitHub Pages), use a proxy or host on ICP.
+- **Script Blocked**: Browser extensions (ad blockers) may interfere; test in incognito.
+- **Local Testing**: Use `dfx deploy --network local` and update script src to local URL (e.g., `http://<frontend-id>.localhost:4943/paywall.js?paywallId=<id>`).
+- **Payment Failures**: Ensure sufficient balance including fees. Check console for errors.
+
+## Strengthening Projects for Integrity
+
+For maximum security, combine client-side script with backend enforcement:
+
+- **Frontend Handshake**:
+  - Before rendering sensitive UI: `window.paywallHandshake(() => { /* logout or hide */ });`
+  - Blocks until access confirmed; returns `true` if granted.
+
+- **Backend Checks (Motoko/Rust)**:
+  - In canister methods: Query `paywall_backend.hasAccess(caller, paywallId)`.
+  - Example (Motoko):
+    ```
+    if (not (await paywall_backend.hasAccess(caller, "pw-0"))) { Debug.trap("Access denied"); };
+    ```
+  - Prevents bypassing client-side checks.
+
+- **Periodic Checks**:
+  - Re-validate every 60s: Use `setInterval` with `paywallHandshake`.
+  - Invalidate session if fails.
+
+- **Audit Logs**: Use target canister for hooks (future expansion).
+
+## Editing and Deleting Paywalls
+
+- **Edit**: In "My Paywalls", click "Edit" to update config. Changes apply immediately.
+- **Delete**: Not directly supported yet; contact support or redeploy without the ID.
+  - **Warning**: Deleting loses all associated user accounts and funds in subaccounts. Users with balances will lose access/funds. Export data first if needed.
+
+## How It Works
+
+- **Backend (Motoko)**: Manages configs, derives subaccounts, handles payments via ICP ledger/CMC.
+- **Frontend (React)**: UI for creation/management.
+- **Script (paywall.js)**: Client-side enforcement with overlays and periodic checks.
+- **Payments**: 1% fee (min 0.001 ICP) to fixed account; remainder split/converted.
+- **Security**: Uses salted derivations for privacy; Internet Identity for auth.
+
+View source: [GitHub Repo](https://github.com/dickhery/paywall).
+
+## Common Issues and Troubleshooting
+
+- **Deployment Errors**: Ensure DFX version matches (0.29.2). Check cycles balance.
+- **Auth Failures**: Clear browser cache; ensure II URL is correct.
+- **Payment Issues**: Verify ledger ID; check console for transfer errors.
+- **Script Not Loading**: Confirm canister IDs; test with `dfx canister call`.
+- **Debugging**: Use browser console; enable Motoko debug prints.
+
+For help, open a GitHub issue.
+
+## Contributing
+
+Contributions welcome! Fork the repo, create a branch, and submit a PR. Follow code style in existing files.
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.

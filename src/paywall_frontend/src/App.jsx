@@ -902,44 +902,6 @@ function App() {
                       <p className="hint">
                         Place <span className="mono">script</span> in the head of the html file. Adjust cors headers if necessary.
                       </p>
-                      <p>
-                        <strong>Integration tips for integrity:</strong>
-                      </p>
-                      <ul className="list">
-                        <li>
-                          For static sites, call{' '}
-                          <code>
-                            {`window.paywallHandshake(() => { /* logout or hide UI */ });`}
-                          </code>{' '}
-                          before rendering sensitive UI, and block access until it
-                          returns <code>true</code>. Re-call every 30 seconds.
-                        </li>
-                        <li>
-                          For dynamic canisters, enforce server-side access in
-                          Motoko with a paywall check, for example:{' '}
-                          <code>
-                            {`if (not (await Paywall.hasAccess(caller, "${id}"))) { Debug.trap("Access denied"); };`}
-                          </code>
-                        </li>
-                        <li>
-                          Re-check access periodically in your app (for example, every
-                          30 seconds) and invalidate the session if the handshake
-                          fails.
-                        </li>
-                        <li>
-                          Add CORS headers if your site makes cross-origin requests:
-                          Access-Control-Allow-Origin: '*'.
-                        </li>
-                        <li>
-                          For ultimate security, host sensitive logic in canisters and
-                          use server-side <code>hasAccess</code> for all
-                          queries/updates.
-                        </li>
-                      </ul>
-                      <p>
-                        <strong>Split rule:</strong> Percentages apply after the
-                        paywall fee.
-                      </p>
                       <button type="button" onClick={() => startEdit(id, config)}>
                         Edit
                       </button>
@@ -1212,6 +1174,71 @@ function App() {
                 })}
               </ul>
             )}
+          </section>
+          <section className="card">
+            <h2>Integration tips</h2>
+            <ul className="list">
+              <li>
+                For static sites, call{' '}
+                <code>
+                  {`window.paywallHandshake(() => { /* logout or hide UI */ });`}
+                </code>{' '}
+                before rendering sensitive UI, and block access until it returns{' '}
+                <code>true</code>. Re-call every 30 seconds.
+              </li>
+              <li>
+                For dynamic canisters, enforce server-side access in Motoko with a
+                paywall check, for example:{' '}
+                <code>
+                  {`if (not (await Paywall.hasAccess(caller, "pw-1"))) { Debug.trap("Access denied"); };`}
+                </code>
+              </li>
+              <li>
+                Re-check access periodically in your app (for example, every 30
+                seconds) and invalidate the session if the handshake fails.
+              </li>
+              <li>
+                Add CORS headers if your site makes cross-origin requests:
+                Access-Control-Allow-Origin: '*'.
+              </li>
+              <li>
+                For ultimate security, host sensitive logic in canisters and use
+                server-side <code>hasAccess</code> for all queries/updates.
+              </li>
+            </ul>
+            <p>
+              <strong>Split rule:</strong> Percentages apply after the paywall fee.
+            </p>
+            <h3>Additional resources</h3>
+            <ul className="list">
+              <li>
+                <a
+                  href="https://github.com/dickhery/paywall/blob/main/README.md"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  README
+                </a>
+              </li>
+              <li>
+                <a
+                  href="https://github.com/dickhery/paywall"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Source code
+                </a>
+              </li>
+              <li>
+                <a
+                  href="https://3jorm-yqaaa-aaaam-aaa6a-cai.ic0.app/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  RichardHery.com
+                </a>
+              </li>
+            </ul>
           </section>
         </>
       )}

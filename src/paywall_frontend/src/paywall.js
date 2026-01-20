@@ -13,10 +13,8 @@ const TAMPER_CHECK_INTERVAL_MS = 5000;
 const DEVTOOLS_THRESHOLD_PX = 160;
 const OVERLAY_STYLE =
   'position:fixed;inset:0;background:rgba(6,9,20,0.88);color:#fff;z-index:999999999;display:flex;align-items:center;justify-content:center;padding:24px;pointer-events:all;';
-let storedBodyHtml = '';
-let storedBodyAttributes = null;
+let storedBodyStyles = null;
 let overlayObserver = null;
-let bodyObserver = null;
 let paywallActive = false;
 let tamperDetected = false;
 let tamperIntervalId = null;
@@ -641,31 +639,24 @@ const enableInteractions = () => {
 };
 
 const hideContent = () => {
-  if (storedBodyHtml) return;
-  storedBodyHtml = document.body.innerHTML;
-  storedBodyAttributes = {
-    className: document.body.className,
-    style: document.body.getAttribute('style') || '',
+  if (storedBodyStyles) return;
+  storedBodyStyles = {
+    overflow: document.body.style.overflow,
+    filter: document.body.style.filter,
+    transition: document.body.style.transition,
   };
-  document.body.innerHTML = '';
   document.body.style.overflow = 'hidden';
-  document.body.style.visibility = 'hidden';
+  document.body.style.filter = 'blur(6px)';
+  document.body.style.transition = 'filter 0.2s ease';
   disableInteractions();
 };
 
 const restoreContent = () => {
-  if (!storedBodyHtml) return;
-  document.body.innerHTML = storedBodyHtml;
-  if (storedBodyAttributes) {
-    document.body.className = storedBodyAttributes.className || '';
-    if (storedBodyAttributes.style) {
-      document.body.setAttribute('style', storedBodyAttributes.style);
-    } else {
-      document.body.removeAttribute('style');
-    }
-  }
-  storedBodyHtml = '';
-  storedBodyAttributes = null;
+  if (!storedBodyStyles) return;
+  document.body.style.overflow = storedBodyStyles.overflow || '';
+  document.body.style.filter = storedBodyStyles.filter || '';
+  document.body.style.transition = storedBodyStyles.transition || '';
+  storedBodyStyles = null;
   enableInteractions();
 };
 
@@ -704,26 +695,12 @@ const startOverlayObservers = (overlay) => {
       attributeFilter: ['style'],
     });
   }
-  if (!bodyObserver) {
-    bodyObserver = new MutationObserver(() => {
-      if (paywallActive && !storedBodyHtml) {
-        if (document.body.childNodes.length > 0 || document.body.innerHTML) {
-          hideContent();
-        }
-      }
-    });
-    bodyObserver.observe(document.body, { childList: true, subtree: true });
-  }
 };
 
 const stopOverlayObservers = () => {
   if (overlayObserver) {
     overlayObserver.disconnect();
     overlayObserver = null;
-  }
-  if (bodyObserver) {
-    bodyObserver.disconnect();
-    bodyObserver = null;
   }
 };
 

@@ -792,6 +792,15 @@ persistent actor Paywall {
     };
   };
 
+  public query func getAccessExpiry(user : Principal, paywallId : Text) : async ?Int {
+    switch (paidStatuses.get(user)) {
+      case null null;
+      case (?userMap) {
+        userMap.get(paywallId);
+      };
+    };
+  };
+
   public query func getOwnedPaywalls(owner : Principal) : async [Text] {
     switch (ownedPaywalls.get(owner)) {
       case null [];

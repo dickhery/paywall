@@ -78,7 +78,7 @@ persistent actor Paywall {
   };
 
   type Dest = variant {
-    Principal : record { principal : Principal; convertToCycles : Bool };
+    Principal : { principal : Principal; convertToCycles : Bool };
     AccountId : Blob;
   };
 

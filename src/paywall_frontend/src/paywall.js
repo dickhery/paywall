@@ -106,6 +106,11 @@ const idlFactory = ({ IDL }) => {
     subaccount: IDL.Opt(IDL.Vec(IDL.Nat8)),
   });
   const PaymentResult = IDL.Variant({ Ok: IDL.Null, Err: IDL.Text });
+  const WithdrawTo = IDL.Variant({
+    Account: Account,
+    LegacyAccountId: IDL.Vec(IDL.Nat8),
+  });
+  const TransferResult = IDL.Variant({ Ok: IDL.Nat, Err: IDL.Text });
   return IDL.Service({
     getPaywallConfig: IDL.Func([IDL.Text], [IDL.Opt(PaywallConfig)], ['query']),
     getPaymentAccount: IDL.Func([IDL.Text], [IDL.Opt(Account)], []),
@@ -113,7 +118,7 @@ const idlFactory = ({ IDL }) => {
     hasAccess: IDL.Func([IDL.Principal, IDL.Text], [IDL.Bool], ['query']),
     payFromBalance: IDL.Func([IDL.Text], [PaymentResult], []),
     verifyPayment: IDL.Func([IDL.Text], [PaymentResult], []),
-    withdrawFromWallet: IDL.Func([IDL.Nat, Account], [IDL.Variant({ Ok: IDL.Nat, Err: IDL.Variant({ BadFee: IDL.Record({ expected_fee: IDL.Nat }), BadBurn: IDL.Record({ min_burn_amount: IDL.Nat }), Duplicate: IDL.Record({ duplicate_of: IDL.Nat }), InsufficientFunds: IDL.Record({ balance: IDL.Nat }), CreatedInFuture: IDL.Record({ ledger_time: IDL.Nat64 }), TooOld: IDL.Null, TemporarilyUnavailable: IDL.Null, GenericError: IDL.Record({ message: IDL.Text, error_code: IDL.Nat }) }) })], []),
+    withdrawFromWallet: IDL.Func([IDL.Nat, WithdrawTo], [TransferResult], []),
     getAccessExpiry: IDL.Func([IDL.Principal, IDL.Text], [IDL.Opt(IDL.Int)], ['query']),
     logTamper: IDL.Func([IDL.Text, IDL.Text], [], ['query']),
   });
@@ -123,6 +128,14 @@ const bytesToHex = (bytes) =>
   Array.from(bytes)
     .map((byte) => byte.toString(16).padStart(2, '0'))
     .join('');
+
+const hexToBytes = (hex) => {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2) {
+    bytes[i / 2] = Number.parseInt(hex.slice(i, i + 2), 16);
+  }
+  return bytes;
+};
 
 const getExpectedScriptHash = (scriptTag) =>
   (scriptTag?.dataset?.integrityHash || window.PAYWALL_SCRIPT_HASH || '')
@@ -492,30 +505,20 @@ const setupPaymentUI = async (
   withdrawButton.style.cssText =
     'background:#0ea5e9;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:14px;cursor:pointer;';
   withdrawButton.addEventListener('click', async () => {
-    const destination = prompt('Enter destination principal:');
+    const destination = prompt('Enter destination Principal or Account ID:');
     if (!destination) return;
+    const input = destination.trim();
 
-    const subaccountText = prompt(
-      'Enter subaccount as hex string (exactly 64 characters, optional, leave blank for default):',
-    );
-    if (subaccountText === null) return;
-    const trimmedText = subaccountText.trim();
-    let subaccountBytes = null;
-    if (trimmedText !== '') {
-      if (
-        trimmedText.length !== 64 ||
-        !/^[0-9a-fA-F]{64}$/.test(trimmedText)
-      ) {
-        alert(
-          'Invalid subaccount hex: Must be exactly 64 hexadecimal characters (0-9, a-f, A-F).',
-        );
+    let to;
+    if (/^[0-9a-fA-F]{64}$/.test(input)) {
+      to = { LegacyAccountId: hexToBytes(input) };
+    } else {
+      try {
+        const principal = Principal.fromText(input);
+        to = { Account: { owner: principal, subaccount: [] } };
+      } catch (error) {
+        alert('Invalid input: Must be a valid Principal or 64-hex Account ID.');
         return;
-      }
-      subaccountBytes = [];
-      for (let i = 0; i < 64; i += 2) {
-        subaccountBytes.push(
-          Number.parseInt(trimmedText.slice(i, i + 2), 16),
-        );
       }
     }
 
@@ -528,10 +531,10 @@ const setupPaymentUI = async (
       return;
     }
     const amountE8s = BigInt(Math.round(amountIcp * 100_000_000));
-    const to = {
-      owner: Principal.fromText(destination),
-      subaccount: subaccountBytes ? [subaccountBytes] : [],
-    };
+    const confirmMessage = `Confirm withdrawal of ${amountIcp.toFixed(8)} ICP to ${destination}?`;
+    if (!confirm(confirmMessage)) {
+      return;
+    }
 
     withdrawButton.disabled = true;
     withdrawButton.textContent = 'Withdrawing...';
@@ -544,10 +547,7 @@ const setupPaymentUI = async (
       if ('Ok' in result) {
         message = `Withdraw successful! Block index: ${result.Ok}`;
       } else {
-        message = `Withdraw failed: ${formatErrorMessage(
-          result.Err,
-          'Unknown transfer error',
-        )}`;
+        message = `Withdraw failed: ${result.Err}`;
       }
       alert(message);
     } catch (error) {

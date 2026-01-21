@@ -20,6 +20,11 @@ persistent actor Paywall {
     subaccount : ?Blob;
   };
 
+  type WithdrawTo = {
+    #Account : Account;
+    #LegacyAccountId : Blob;
+  };
+
   type TransferArgs = {
     to : Account;
     amount : Nat;
@@ -163,6 +168,11 @@ persistent actor Paywall {
 
   type PaymentResult = {
     #Ok;
+    #Err : Text;
+  };
+
+  type WithdrawResult = {
+    #Ok : Nat;
     #Err : Text;
   };
 
@@ -606,16 +616,38 @@ persistent actor Paywall {
     };
   };
 
-  public shared(msg) func withdrawFromWallet(amount : Nat, to : Account) : async TransferResult {
+  public shared(msg) func withdrawFromWallet(amount : Nat, to : WithdrawTo) : async WithdrawResult {
     let subaccount = await deriveUserSubaccount(msg.caller);
-    await ledger.icrc1_transfer({
-      to;
-      amount;
-      from_subaccount = ?subaccount;
-      fee = ?icpTransferFee;
-      memo = null;
-      created_at_time = null;
-    });
+    switch (to) {
+      case (#Account account) {
+        let result = await ledger.icrc1_transfer({
+          to = account;
+          amount;
+          from_subaccount = ?subaccount;
+          fee = ?icpTransferFee;
+          memo = null;
+          created_at_time = null;
+        });
+        switch (result) {
+          case (#Ok(blockIndex)) #Ok(blockIndex);
+          case (#Err(err)) #Err(debug_show(err));
+        };
+      };
+      case (#LegacyAccountId accountId) {
+        let result = await ledger.transfer({
+          to = accountId;
+          amount = { e8s = Nat64.fromNat(amount) };
+          fee = { e8s = Nat64.fromNat(icpTransferFee) };
+          memo = 0;
+          from_subaccount = ?subaccount;
+          created_at_time = null;
+        });
+        switch (result) {
+          case (#Ok(blockIndex)) #Ok(Nat64.toNat(blockIndex));
+          case (#Err(err)) #Err(debug_show(err));
+        };
+      };
+    };
   };
 
   public shared(msg) func payFromBalance(paywallId : Text) : async PaymentResult {

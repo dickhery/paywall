@@ -17,6 +17,7 @@ let storedBodyStyles = null;
 let overlayObserver = null;
 let paywallActive = false;
 let tamperDetected = false;
+let tamperReason = null;
 let tamperIntervalId = null;
 let tamperContext = null;
 let activeOverlay = null;
@@ -40,6 +41,13 @@ const stringifyWithBigInt = (value) => {
   } catch (error) {
     return String(value);
   }
+};
+
+const isMobile = () => {
+  const userAgent = navigator?.userAgent || '';
+  return /Mobile|Android|iP(ad|hone|od)|BlackBerry|IEMobile|Kindle|Silk|Opera Mini/i.test(
+    userAgent,
+  );
 };
 
 const formatErrorMessage = (error, fallback) => {
@@ -151,6 +159,9 @@ const logTamper = async (details) => {
 
 const markTamper = (details) => {
   tamperDetected = true;
+  if (!tamperReason) {
+    tamperReason = details;
+  }
   const warning = activeOverlay?.querySelector('#tamper-warning');
   if (warning) {
     warning.style.display = 'block';
@@ -180,7 +191,7 @@ const runTamperCheck = async () => {
   if (!integrityOk) {
     markTamper('Script integrity check failed');
   }
-  if (!detectDevTools()) {
+  if (!isMobile() && !detectDevTools()) {
     markTamper('Dev tools detected');
   }
   return !tamperDetected;
@@ -723,6 +734,14 @@ const showOverlay = (overlay) => {
 };
 
 const revealContent = (overlay) => {
+  if (tamperDetected && isMobile() && tamperReason === 'Dev tools detected') {
+    tamperDetected = false;
+    tamperReason = null;
+    const warning = overlay.querySelector('#tamper-warning');
+    if (warning) {
+      warning.style.display = 'none';
+    }
+  }
   if (tamperDetected) {
     showOverlay(overlay);
     return;

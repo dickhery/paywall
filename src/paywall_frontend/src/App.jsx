@@ -79,6 +79,7 @@ function App() {
   const [ownedPaywalls, setOwnedPaywalls] = useState([]);
   const [paywallConfigs, setPaywallConfigs] = useState({});
   const [refreshingPaywallId, setRefreshingPaywallId] = useState(null);
+  const [expandedPaywalls, setExpandedPaywalls] = useState(new Set());
   const [editingId, setEditingId] = useState(null);
   const [editPriceIcp, setEditPriceIcp] = useState('');
   const [editTargetUrl, setEditTargetUrl] = useState('');
@@ -323,6 +324,99 @@ function App() {
     },
     [authClient, getActor],
   );
+
+  const togglePaywall = useCallback((id) => {
+    setExpandedPaywalls((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const buildEmbedScript = useCallback(
+    (id) =>
+      `<script type="module" data-paywall data-backend-id="${process.env.CANISTER_ID_PAYWALL_BACKEND}" src="https://${process.env.CANISTER_ID_PAYWALL_FRONTEND}.icp0.io/paywall.js?paywallId=${id}&v=${Date.now()}"></script>`,
+    [],
+  );
+
+  const getTargetOrigin = (urlString) => {
+    try {
+      return new URL(urlString).origin;
+    } catch {
+      return urlString;
+    }
+  };
+
+  const generateVibePrompt = useCallback(
+    (id, config) => {
+      const scriptTag = buildEmbedScript(id);
+      const targetOrigin = getTargetOrigin(config.target_url);
+      const priceIcpValue = (Number(config.price_e8s) / 100_000_000).toFixed(4);
+      const paymentPrompt =
+        config.payment_prompt_text?.[0] || 'Pay to gain access to the app.';
+      const loginPrompt =
+        config.login_prompt_text?.[0] || 'Log in to continue.';
+
+      return `Integrate the IC paywall into this app in one pass.\n\n` +
+        `Target URL (production deploy): ${config.target_url}\n` +
+        `Allowed origin for CORS: ${targetOrigin}\n\n` +
+        `Embed script (place in the <head> and load after critical content):\n` +
+        `${scriptTag}\n\n` +
+        `Integration requirements:\n` +
+        `- Add the script tag exactly as shown in the <head> of your HTML. Ensure it loads after critical content (defer/async if needed, test for compatibility).\n` +
+        `- Ensure the live domain is ${config.target_url} (not a draft/preview URL) so the paywall does not disable itself due to origin mismatch.\n` +
+        `- If your app has a backend, configure CORS to allow ${targetOrigin} (or '*' for quick testing). Example headers: Access-Control-Allow-Origin: ${targetOrigin}; Access-Control-Allow-Methods: GET, POST, OPTIONS; Access-Control-Allow-Headers: Content-Type, Authorization.\n` +
+        `- Do not block existing layout, ads, or app scripts; the paywall script handles the overlay and checks without destructive changes.\n` +
+        `- After integration, verify access checks run before showing protected UI:\n` +
+        `  - Frontend: call window.paywallHandshake((hasAccess) => { if (!hasAccess) { /* hide UI or redirect */ } }) before rendering protected content. Re-check every 30 seconds to enforce session expiry.\n` +
+        `  - Backend (Motoko): check access before returning sensitive data, e.g. if (not (await Paywall.hasAccess(caller, "${id}"))) { Debug.trap("Access denied"); }.\n` +
+        `  - Test flow: unauthenticated users see paywall → pay/login → app loads → session expiry re-blocks.\n` +
+        `- Strengthen enforcement: periodically re-check access, and keep sensitive logic in canisters guarded by hasAccess.\n\n` +
+        `Paywall details:\n` +
+        `- Paywall ID: ${id}\n` +
+        `- Price: ${priceIcpValue} ICP\n` +
+        `- Login prompt: "${loginPrompt}"\n` +
+        `- Payment prompt: "${paymentPrompt}"\n\n` +
+        `Troubleshooting:\n` +
+        `- "Disallowed origin" error: update CORS to allow ${targetOrigin} and redeploy.\n` +
+        `- "Paywall disabled: running on draft origin": ensure the page URL matches ${config.target_url} exactly.\n` +
+        `- Script not loading: verify ${scriptTag} is reachable and no CSP blocks it.\n` +
+        `- Access not enforcing: confirm paywallHandshake runs before UI and backend endpoints call hasAccess.`;
+    },
+    [buildEmbedScript],
+  );
+
+  const copyPromptToClipboard = useCallback(async (prompt) => {
+    try {
+      await navigator.clipboard.writeText(prompt);
+      return { ok: true, method: 'clipboard' };
+    } catch (error) {
+      console.error('Clipboard API failed:', error);
+      const textarea = document.createElement('textarea');
+      textarea.value = prompt;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-999999px';
+      textarea.style.top = '-999999px';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      try {
+        const succeeded = document.execCommand('copy');
+        if (succeeded) {
+          return { ok: true, method: 'fallback' };
+        }
+      } catch (fallbackError) {
+        console.error('Fallback copy failed:', fallbackError);
+      } finally {
+        document.body.removeChild(textarea);
+      }
+      return { ok: false, method: 'failed' };
+    }
+  }, []);
 
   const startEdit = (id, config) => {
     setEditingId(id);
@@ -829,6 +923,7 @@ function App() {
                 {ownedPaywalls.map((id) => {
                   const config = paywallConfigs[id];
                   if (!config) return null;
+                  const isExpanded = expandedPaywalls.has(id);
                   const price = Number(config.price_e8s) / 100_000_000;
                   const durationSeconds =
                     Number(config.session_duration_ns) / 1_000_000_000;
@@ -843,331 +938,375 @@ function App() {
                   return (
                     <li
                       key={id}
-                      style={{
-                        marginBottom: '16px',
-                        borderBottom: '1px solid #1f2937',
-                        paddingBottom: '16px',
-                      }}
+                      className="paywall-item"
                     >
-                      <p>
-                        <strong>ID:</strong> {id}
-                      </p>
-                      <p>
-                        <strong>Price:</strong> {price.toFixed(4)} ICP
-                      </p>
-                      <p>
-                        <strong>Destinations:</strong>
-                      </p>
-                      <ul className="list">
-                        {config.destinations.map((destination, index) => (
-                          <li key={`${id}-destination-${index}`}>
-                            {formatDestinationLabel(destination)} ({Number(destination.percentage)}%)
-                          </li>
-                        ))}
-                      </ul>
-                      <p>
-                        <strong>Target URL:</strong> {config.target_url}
-                      </p>
-                      <p>
-                        <strong>Session Duration:</strong> {days}d {hours}h{' '}
-                        {minutes}m {seconds}s
-                      </p>
-                      <p>
-                        <strong>Login Prompt:</strong>{' '}
-                        {config.login_prompt_text?.[0] || 'None set'}
-                      </p>
-                      <p>
-                        <strong>Payment Prompt:</strong>{' '}
-                        {config.payment_prompt_text?.[0] || 'None set'}
-                      </p>
-                      <p>
-                        <strong>Usage Count:</strong>{' '}
-                        {config.usage_count.toString()}
-                        <button
-                          type="button"
-                          className="button-secondary button-compact"
-                          onClick={() => refreshUsageCount(id)}
-                          disabled={refreshingPaywallId === id}
-                          style={{ marginLeft: '8px' }}
-                        >
-                          {refreshingPaywallId === id ? 'Refreshing...' : 'Refresh'}
-                        </button>
-                      </p>
-                      <p>
-                        <strong>Embed Script:</strong>
-                      </p>
-                      <code>
-                        {`<script type="module" data-paywall data-backend-id="${process.env.CANISTER_ID_PAYWALL_BACKEND}" src="https://${process.env.CANISTER_ID_PAYWALL_FRONTEND}.icp0.io/paywall.js?paywallId=${id}&v=${Date.now()}"></script>`}
-                      </code>
-                      <p className="hint">
-                        Place <span className="mono">script</span> in the head of the html file. Adjust cors headers if necessary.
-                      </p>
-                      <button type="button" onClick={() => startEdit(id, config)}>
-                        Edit
+                      <button
+                        type="button"
+                        className="paywall-summary"
+                        onClick={() => togglePaywall(id)}
+                      >
+                        <span className="paywall-summary-text">
+                          {config.target_url}
+                        </span>
+                        <span aria-hidden="true">
+                          {isExpanded ? '▼' : '▶'}
+                        </span>
                       </button>
-                      {editingId === id && (
-                        <form
-                          className="form"
-                          onSubmit={(event) => handleUpdatePaywall(event, id)}
-                        >
-                          <label>
-                            Edit Price (ICP)
-                            <input
-                              type="number"
-                              step="0.00000001"
-                              min="0"
-                              value={editPriceIcp}
-                              onChange={(event) =>
-                                setEditPriceIcp(event.target.value)
+                      {isExpanded && (
+                        <div className="paywall-details">
+                          <p>
+                            <strong>ID:</strong> {id}
+                          </p>
+                          <p>
+                            <strong>Price:</strong> {price.toFixed(4)} ICP
+                          </p>
+                          <p>
+                            <strong>Destinations:</strong>
+                          </p>
+                          <ul className="list">
+                            {config.destinations.map((destination, index) => (
+                              <li key={`${id}-destination-${index}`}>
+                                {formatDestinationLabel(destination)} ({Number(destination.percentage)}%)
+                              </li>
+                            ))}
+                          </ul>
+                          <p>
+                            <strong>Target URL:</strong> {config.target_url}
+                          </p>
+                          <p>
+                            <strong>Session Duration:</strong> {days}d {hours}h{' '}
+                            {minutes}m {seconds}s
+                          </p>
+                          <p>
+                            <strong>Login Prompt:</strong>{' '}
+                            {config.login_prompt_text?.[0] || 'None set'}
+                          </p>
+                          <p>
+                            <strong>Payment Prompt:</strong>{' '}
+                            {config.payment_prompt_text?.[0] || 'None set'}
+                          </p>
+                          <p>
+                            <strong>Usage Count:</strong>{' '}
+                            {config.usage_count.toString()}
+                            <button
+                              type="button"
+                              className="button-secondary button-compact"
+                              onClick={() => refreshUsageCount(id)}
+                              disabled={refreshingPaywallId === id}
+                              style={{ marginLeft: '8px' }}
+                            >
+                              {refreshingPaywallId === id ? 'Refreshing...' : 'Refresh'}
+                            </button>
+                          </p>
+                          <p>
+                            <strong>Embed Script:</strong>
+                          </p>
+                          <code>
+                            {buildEmbedScript(id)}
+                          </code>
+                          <p className="hint">
+                            Place <span className="mono">script</span> in the head of the html file. Adjust cors headers if necessary.
+                          </p>
+                          <p>
+                            <strong>Vibe Coding Prompt:</strong>
+                          </p>
+                          <textarea
+                            className="paywall-prompt"
+                            readOnly
+                            value={generateVibePrompt(id, config)}
+                            rows={10}
+                          />
+                          <button
+                            type="button"
+                            className="button-secondary"
+                            onClick={async () => {
+                              const prompt = generateVibePrompt(id, config);
+                              const result = await copyPromptToClipboard(prompt);
+                              if (result.ok) {
+                                alert(
+                                  result.method === 'fallback'
+                                    ? 'Prompt copied to clipboard (fallback method).'
+                                    : 'Prompt copied to clipboard!',
+                                );
+                              } else {
+                                alert('Copy failed. Please copy manually from the text area.');
                               }
-                              required
-                            />
-                            <span className="hint">
-                              Calculated fee: {formatIcp(editFeeE8s)} ICP. Net
-                              to split: {formatIcp(editNetE8s)} ICP.
-                            </span>
-                          </label>
-                          <label>
-                            Associated URL
-                            <span className="hint">
-                              Enter the URL where this paywall will be deployed
-                              (e.g., https://example.com).
-                            </span>
-                            <input
-                              type="text"
-                              value={editTargetUrl}
-                              onChange={(event) =>
-                                setEditTargetUrl(event.target.value)
-                              }
-                              placeholder="https://example.com"
-                              required
-                            />
-                          </label>
-                          <div className="form-field">
-                            <span>Edit Session Duration</span>
-                            <span className="hint">
-                              Update the access window in days, hours, minutes,
-                              and seconds.
-                            </span>
-                            <div className="time-inputs">
+                            }}
+                          >
+                            Copy prompt
+                          </button>
+                          <p className="hint">
+                            Paste this prompt into your vibe coding app to integrate
+                            the paywall in one pass.
+                          </p>
+                          <button type="button" onClick={() => startEdit(id, config)}>
+                            Edit
+                          </button>
+                          {editingId === id && (
+                            <form
+                              className="form"
+                              onSubmit={(event) => handleUpdatePaywall(event, id)}
+                            >
                               <label>
-                                Days
+                                Edit Price (ICP)
                                 <input
                                   type="number"
+                                  step="0.00000001"
                                   min="0"
-                                  value={editSessionDays}
+                                  value={editPriceIcp}
                                   onChange={(event) =>
-                                    setEditSessionDays(event.target.value)
+                                    setEditPriceIcp(event.target.value)
                                   }
-                                  placeholder="Days"
+                                  required
+                                />
+                                <span className="hint">
+                                  Calculated fee: {formatIcp(editFeeE8s)} ICP.
+                                  Net to split: {formatIcp(editNetE8s)} ICP.
+                                </span>
+                              </label>
+                              <label>
+                                Associated URL
+                                <span className="hint">
+                                  Enter the URL where this paywall will be deployed
+                                  (e.g., https://example.com).
+                                </span>
+                                <input
+                                  type="text"
+                                  value={editTargetUrl}
+                                  onChange={(event) =>
+                                    setEditTargetUrl(event.target.value)
+                                  }
+                                  placeholder="https://example.com"
                                   required
                                 />
                               </label>
-                              <label>
-                                Hours
-                                <input
-                                  type="number"
-                                  min="0"
-                                  value={editSessionHours}
-                                  onChange={(event) =>
-                                    setEditSessionHours(event.target.value)
-                                  }
-                                  placeholder="Hours"
-                                  required
-                                />
-                              </label>
-                              <label>
-                                Minutes
-                                <input
-                                  type="number"
-                                  min="0"
-                                  max="59"
-                                  value={editSessionMinutes}
-                                  onChange={(event) =>
-                                    setEditSessionMinutes(event.target.value)
-                                  }
-                                  placeholder="Minutes"
-                                  required
-                                />
-                              </label>
-                              <label>
-                                Seconds
-                                <input
-                                  type="number"
-                                  min="0"
-                                  max="59"
-                                  value={editSessionSeconds}
-                                  onChange={(event) =>
-                                    setEditSessionSeconds(event.target.value)
-                                  }
-                                  placeholder="Seconds"
-                                  required
-                                />
-                              </label>
-                            </div>
-                          </div>
-                          <div className="form-field">
-                            <span>Edit destinations</span>
-                            <span className="hint">
-                              Percentages must total 100% after the fee is
-                              deducted.
-                            </span>
-                            <div className="stack">
-                              {editDestinations.map((destination, index) => (
-                                <div
-                                  key={`edit-destination-${index}`}
-                                  className="stack"
-                                  style={{
-                                    border: '1px solid #1f2937',
-                                    borderRadius: '12px',
-                                    padding: '12px',
-                                  }}
-                                >
-                                  <strong>Destination {index + 1}</strong>
+                              <div className="form-field">
+                                <span>Edit Session Duration</span>
+                                <span className="hint">
+                                  Update the access window in days, hours, minutes,
+                                  and seconds.
+                                </span>
+                                <div className="time-inputs">
                                   <label>
-                                    Destination value (Principal or Account ID)
-                                    <input
-                                      type="text"
-                                      value={destination.input}
-                                      onChange={(event) => {
-                                        const next = [...editDestinations];
-                                        const value = event.target.value;
-                                        const trimmed = value.trim();
-                                        const accountId = isAccountId(trimmed);
-                                        next[index] = {
-                                          ...next[index],
-                                          input: value,
-                                          isPrincipal: !accountId,
-                                          convertToCycles: accountId
-                                            ? false
-                                            : next[index].convertToCycles,
-                                        };
-                                        setEditDestinations(next);
-                                      }}
-                                      placeholder="Principal (aaaaa-aa) or Account ID (64 hex)"
-                                      required={destination.percentage > 0}
-                                    />
-                                  </label>
-                                  <label>
-                                    Percentage (0-100)
+                                    Days
                                     <input
                                       type="number"
                                       min="0"
-                                      max="100"
-                                      value={destination.percentage}
-                                      onChange={(event) => {
-                                        const next = [...editDestinations];
-                                        next[index] = {
-                                          ...next[index],
-                                          percentage:
-                                            Number.parseInt(
-                                              event.target.value,
-                                              10,
-                                            ) || 0,
-                                        };
-                                        setEditDestinations(next);
-                                      }}
+                                      value={editSessionDays}
+                                      onChange={(event) =>
+                                        setEditSessionDays(event.target.value)
+                                      }
+                                      placeholder="Days"
                                       required
                                     />
                                   </label>
-                                  {destination.isPrincipal && (
-                                    <label>
-                                      Convert to cycles
-                                      <input
-                                        type="checkbox"
-                                        checked={destination.convertToCycles}
-                                        onChange={(event) => {
-                                          const next = [...editDestinations];
-                                          next[index] = {
-                                            ...next[index],
-                                            convertToCycles: event.target.checked,
-                                          };
-                                          setEditDestinations(next);
-                                        }}
-                                      />
-                                    </label>
-                                  )}
-                                  {editDestinations.length > 1 && (
+                                  <label>
+                                    Hours
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={editSessionHours}
+                                      onChange={(event) =>
+                                        setEditSessionHours(event.target.value)
+                                      }
+                                      placeholder="Hours"
+                                      required
+                                    />
+                                  </label>
+                                  <label>
+                                    Minutes
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      max="59"
+                                      value={editSessionMinutes}
+                                      onChange={(event) =>
+                                        setEditSessionMinutes(event.target.value)
+                                      }
+                                      placeholder="Minutes"
+                                      required
+                                    />
+                                  </label>
+                                  <label>
+                                    Seconds
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      max="59"
+                                      value={editSessionSeconds}
+                                      onChange={(event) =>
+                                        setEditSessionSeconds(event.target.value)
+                                      }
+                                      placeholder="Seconds"
+                                      required
+                                    />
+                                  </label>
+                                </div>
+                              </div>
+                              <div className="form-field">
+                                <span>Edit destinations</span>
+                                <span className="hint">
+                                  Percentages must total 100% after the fee is
+                                  deducted.
+                                </span>
+                                <div className="stack">
+                                  {editDestinations.map((destination, index) => (
+                                    <div
+                                      key={`edit-destination-${index}`}
+                                      className="stack"
+                                      style={{
+                                        border: '1px solid #1f2937',
+                                        borderRadius: '12px',
+                                        padding: '12px',
+                                      }}
+                                    >
+                                      <strong>Destination {index + 1}</strong>
+                                      <label>
+                                        Destination value (Principal or Account ID)
+                                        <input
+                                          type="text"
+                                          value={destination.input}
+                                          onChange={(event) => {
+                                            const next = [...editDestinations];
+                                            const value = event.target.value;
+                                            const trimmed = value.trim();
+                                            const accountId = isAccountId(trimmed);
+                                            next[index] = {
+                                              ...next[index],
+                                              input: value,
+                                              isPrincipal: !accountId,
+                                              convertToCycles: accountId
+                                                ? false
+                                                : next[index].convertToCycles,
+                                            };
+                                            setEditDestinations(next);
+                                          }}
+                                          placeholder="Principal (aaaaa-aa) or Account ID (64 hex)"
+                                          required={destination.percentage > 0}
+                                        />
+                                      </label>
+                                      <label>
+                                        Percentage (0-100)
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          max="100"
+                                          value={destination.percentage}
+                                          onChange={(event) => {
+                                            const next = [...editDestinations];
+                                            next[index] = {
+                                              ...next[index],
+                                              percentage:
+                                                Number.parseInt(
+                                                  event.target.value,
+                                                  10,
+                                                ) || 0,
+                                            };
+                                            setEditDestinations(next);
+                                          }}
+                                          required
+                                        />
+                                      </label>
+                                      {destination.isPrincipal && (
+                                        <label>
+                                          Convert to cycles
+                                          <input
+                                            type="checkbox"
+                                            checked={destination.convertToCycles}
+                                            onChange={(event) => {
+                                              const next = [...editDestinations];
+                                              next[index] = {
+                                                ...next[index],
+                                                convertToCycles: event.target.checked,
+                                              };
+                                              setEditDestinations(next);
+                                            }}
+                                          />
+                                        </label>
+                                      )}
+                                      {editDestinations.length > 1 && (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setEditDestinations(
+                                              editDestinations.filter(
+                                                (_, i) => i !== index,
+                                              ),
+                                            )
+                                          }
+                                        >
+                                          Remove destination
+                                        </button>
+                                      )}
+                                    </div>
+                                  ))}
+                                  {editDestinations.length < MAX_DESTINATIONS && (
                                     <button
                                       type="button"
                                       onClick={() =>
-                                        setEditDestinations(
-                                          editDestinations.filter(
-                                            (_, i) => i !== index,
-                                          ),
-                                        )
+                                        setEditDestinations([
+                                          ...editDestinations,
+                                          {
+                                            input: '',
+                                            percentage: 0,
+                                            convertToCycles: false,
+                                            isPrincipal: true,
+                                          },
+                                        ])
                                       }
                                     >
-                                      Remove destination
+                                      Add destination
                                     </button>
                                   )}
                                 </div>
-                              ))}
-                              {editDestinations.length < MAX_DESTINATIONS && (
+                              </div>
+                              {editDestinations
+                                .filter((destination) => destination.percentage > 0)
+                                .map((destination, index) => (
+                                  <p key={`edit-split-preview-${index}`} className="hint">
+                                    Split {index + 1}:{' '}
+                                    {formatIcp(
+                                      (editNetE8s *
+                                        BigInt(destination.percentage || 0)) /
+                                        100n,
+                                    )}{' '}
+                                    ICP to {destination.input || 'destination'}
+                                  </p>
+                                ))}
+                              <label>
+                                Edit login prompt text (optional)
+                                <textarea
+                                  value={editLoginPromptText}
+                                  onChange={(event) =>
+                                    setEditLoginPromptText(event.target.value)
+                                  }
+                                  placeholder="Enter a custom login message"
+                                  rows={3}
+                                />
+                              </label>
+                              <label>
+                                Edit payment prompt text (optional)
+                                <textarea
+                                  value={editPaymentPromptText}
+                                  onChange={(event) =>
+                                    setEditPaymentPromptText(event.target.value)
+                                  }
+                                  placeholder="Enter a custom payment message"
+                                  rows={3}
+                                />
+                              </label>
+                              <div className="row">
+                                <button type="submit">Update paywall</button>
                                 <button
                                   type="button"
-                                  onClick={() =>
-                                    setEditDestinations([
-                                      ...editDestinations,
-                                      {
-                                        input: '',
-                                        percentage: 0,
-                                        convertToCycles: false,
-                                        isPrincipal: true,
-                                      },
-                                    ])
-                                  }
+                                  onClick={() => setEditingId(null)}
                                 >
-                                  Add destination
+                                  Cancel
                                 </button>
-                              )}
-                            </div>
-                          </div>
-                          {editDestinations
-                            .filter((destination) => destination.percentage > 0)
-                            .map((destination, index) => (
-                              <p key={`edit-split-preview-${index}`} className="hint">
-                                Split {index + 1}:{' '}
-                                {formatIcp(
-                                  (editNetE8s *
-                                    BigInt(destination.percentage || 0)) /
-                                    100n,
-                                )}{' '}
-                                ICP to {destination.input || 'destination'}
-                              </p>
-                            ))}
-                          <label>
-                            Edit login prompt text (optional)
-                            <textarea
-                              value={editLoginPromptText}
-                              onChange={(event) =>
-                                setEditLoginPromptText(event.target.value)
-                              }
-                              placeholder="Enter a custom login message"
-                              rows={3}
-                            />
-                          </label>
-                          <label>
-                            Edit payment prompt text (optional)
-                            <textarea
-                              value={editPaymentPromptText}
-                              onChange={(event) =>
-                                setEditPaymentPromptText(event.target.value)
-                              }
-                              placeholder="Enter a custom payment message"
-                              rows={3}
-                            />
-                          </label>
-                          <div className="row">
-                            <button type="submit">Update paywall</button>
-                            <button
-                              type="button"
-                              onClick={() => setEditingId(null)}
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </form>
+                              </div>
+                            </form>
+                          )}
+                        </div>
                       )}
                     </li>
                   );

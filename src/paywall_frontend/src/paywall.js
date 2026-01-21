@@ -230,7 +230,7 @@ const buildOverlay = (onLogin) => {
   overlay.style.cssText = OVERLAY_STYLE;
   const panel = document.createElement('div');
   panel.style.cssText =
-    'background:#111827;padding:32px;border-radius:16px;width:min(92vw,520px);max-height:90vh;overflow:auto;text-align:center;box-shadow:0 20px 40px rgba(0,0,0,0.45);';
+    'background:#111827;padding:32px 32px 24px;border-radius:16px;width:min(92vw,520px);max-height:90vh;overflow:auto;text-align:center;box-shadow:0 20px 40px rgba(0,0,0,0.45);';
   panel.id = 'paywall-panel';
   panel.innerHTML = `
     <h2 style="margin:0 0 12px;font-size:clamp(20px,5.5vw,26px);">Payment required</h2>
@@ -258,6 +258,19 @@ const buildOverlay = (onLogin) => {
 
   logoLink.appendChild(logoImg);
   overlay.appendChild(logoLink);
+
+  const updatePanelMaxHeight = () => {
+    const logoHeight = logoImg.offsetHeight;
+    if (logoHeight > 0) {
+      panel.style.maxHeight = `calc(90vh - ${logoHeight + 32}px)`;
+    }
+  };
+
+  logoImg.addEventListener('load', updatePanelMaxHeight);
+
+  overlay.__paywallLogo = logoImg;
+  overlay.__paywallPanel = panel;
+  overlay.__updatePanelMaxHeight = updatePanelMaxHeight;
 
   overlay.querySelector('#paywall-login').addEventListener('click', onLogin);
   return overlay;
@@ -721,6 +734,12 @@ const showOverlay = (overlay) => {
   hideContent();
   if (!overlay.isConnected) {
     document.documentElement.appendChild(overlay);
+    if (overlay.__paywallLogo?.complete && overlay.__updatePanelMaxHeight) {
+      overlay.__updatePanelMaxHeight();
+    }
+    if (overlay.__updatePanelMaxHeight) {
+      requestAnimationFrame(() => overlay.__updatePanelMaxHeight());
+    }
   }
   if (tamperDetected) {
     const warning = overlay.querySelector('#tamper-warning');
@@ -749,6 +768,10 @@ const revealContent = (overlay) => {
   overlay.remove();
   paywallActive = false;
   activeOverlay = null;
+  if (overlay?.__onResize) {
+    window.removeEventListener('resize', overlay.__onResize);
+    overlay.__onResize = null;
+  }
   stopOverlayObservers();
   stopTamperChecks();
   restoreContent();
@@ -938,6 +961,11 @@ const run = async () => {
       expectedScriptHash,
       overlay,
     };
+
+    if (overlay.__updatePanelMaxHeight) {
+      overlay.__onResize = () => overlay.__updatePanelMaxHeight();
+      window.addEventListener('resize', overlay.__onResize);
+    }
 
     overlay.querySelector('#paywall-login-prompt').textContent = loginPromptText;
     showOverlay(overlay);

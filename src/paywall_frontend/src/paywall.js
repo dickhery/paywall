@@ -5,7 +5,7 @@ import { Buffer } from 'buffer';
 import { LedgerCanister, principalToAccountIdentifier } from '@dfinity/ledger-icp';
 import { Principal } from '@dfinity/principal';
 
-const II_URL = 'https://identity.ic0.app/#authorize';
+const II_URL = 'https://id.ai/#authorize';
 const DEFAULT_LEDGER_ID = 'ryjl3-tyaaa-aaaaa-aaaba-cai';
 const LEDGER_FEE_E8S = 10000n;
 const PERIODIC_CHECK_INTERVAL_MS = 30000;

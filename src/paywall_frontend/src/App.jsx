@@ -6,7 +6,7 @@ import { createActor, paywall_backend } from 'declarations/paywall_backend';
 const ICP_TRANSFER_FEE_E8S = 10_000n;
 const PAYWALL_MIN_FEE_E8S = 100_000n;
 const MAX_DESTINATIONS = 3;
-const MAINNET_II_URL = 'https://identity.ic0.app/#authorize';
+const MAINNET_II_URL = 'https://id.ai/#authorize';
 const FEE_ACCOUNT_IDENTIFIER =
   '2a4abcd2278509654f9a26b885ecb49b8619bffe58a6acb2e3a5e3c7fb96020d';
 

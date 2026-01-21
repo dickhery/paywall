@@ -367,20 +367,56 @@ function App() {
         `Embed script (place in the <head> and load after critical content):\n` +
         `${scriptTag}\n\n` +
         `Integration requirements:\n` +
-        `- Add the script tag exactly as shown.\n` +
-        `- Ensure the live domain is ${config.target_url} (not a draft/preview URL) so the paywall does not disable itself.\n` +
-        `- If you configure CORS, allow ${targetOrigin} (or '*' if appropriate for your backend).\n` +
-        `- Do not block existing layout, ads, or app scripts; load after main content is ready.\n` +
-        `- After integration, verify access checks run before showing protected UI.\n\n` +
+        `- Add the script tag exactly as shown in the <head> of your HTML. Ensure it loads after critical content (defer/async if needed, test for compatibility).\n` +
+        `- Ensure the live domain is ${config.target_url} (not a draft/preview URL) so the paywall does not disable itself due to origin mismatch.\n` +
+        `- If your app has a backend, configure CORS to allow ${targetOrigin} (or '*' for quick testing). Example headers: Access-Control-Allow-Origin: ${targetOrigin}; Access-Control-Allow-Methods: GET, POST, OPTIONS; Access-Control-Allow-Headers: Content-Type, Authorization.\n` +
+        `- Do not block existing layout, ads, or app scripts; the paywall script handles the overlay and checks without destructive changes.\n` +
+        `- After integration, verify access checks run before showing protected UI:\n` +
+        `  - Frontend: call window.paywallHandshake((hasAccess) => { if (!hasAccess) { /* hide UI or redirect */ } }) before rendering protected content. Re-check every 30 seconds to enforce session expiry.\n` +
+        `  - Backend (Motoko): check access before returning sensitive data, e.g. if (not (await Paywall.hasAccess(caller, "${id}"))) { Debug.trap("Access denied"); }.\n` +
+        `  - Test flow: unauthenticated users see paywall → pay/login → app loads → session expiry re-blocks.\n` +
+        `- Strengthen enforcement: periodically re-check access, and keep sensitive logic in canisters guarded by hasAccess.\n\n` +
         `Paywall details:\n` +
         `- Paywall ID: ${id}\n` +
         `- Price: ${priceIcpValue} ICP\n` +
         `- Login prompt: "${loginPrompt}"\n` +
         `- Payment prompt: "${paymentPrompt}"\n\n` +
-        `If you see errors like "disallowed origin" or "Paywall disabled: running on draft origin", update the integration so ${config.target_url} is the recognized live origin and redeploy to production.`;
+        `Troubleshooting:\n` +
+        `- "Disallowed origin" error: update CORS to allow ${targetOrigin} and redeploy.\n` +
+        `- "Paywall disabled: running on draft origin": ensure the page URL matches ${config.target_url} exactly.\n` +
+        `- Script not loading: verify ${scriptTag} is reachable and no CSP blocks it.\n` +
+        `- Access not enforcing: confirm paywallHandshake runs before UI and backend endpoints call hasAccess.`;
     },
     [buildEmbedScript],
   );
+
+  const copyPromptToClipboard = useCallback(async (prompt) => {
+    try {
+      await navigator.clipboard.writeText(prompt);
+      return { ok: true, method: 'clipboard' };
+    } catch (error) {
+      console.error('Clipboard API failed:', error);
+      const textarea = document.createElement('textarea');
+      textarea.value = prompt;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-999999px';
+      textarea.style.top = '-999999px';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      try {
+        const succeeded = document.execCommand('copy');
+        if (succeeded) {
+          return { ok: true, method: 'fallback' };
+        }
+      } catch (fallbackError) {
+        console.error('Fallback copy failed:', fallbackError);
+      } finally {
+        document.body.removeChild(textarea);
+      }
+      return { ok: false, method: 'failed' };
+    }
+  }, []);
 
   const startEdit = (id, config) => {
     setEditingId(id);
@@ -985,11 +1021,14 @@ function App() {
                             className="button-secondary"
                             onClick={async () => {
                               const prompt = generateVibePrompt(id, config);
-                              try {
-                                await navigator.clipboard.writeText(prompt);
-                                alert('Prompt copied to clipboard!');
-                              } catch (error) {
-                                console.error('Copy failed:', error);
+                              const result = await copyPromptToClipboard(prompt);
+                              if (result.ok) {
+                                alert(
+                                  result.method === 'fallback'
+                                    ? 'Prompt copied to clipboard (fallback method).'
+                                    : 'Prompt copied to clipboard!',
+                                );
+                              } else {
                                 alert('Copy failed. Please copy manually from the text area.');
                               }
                             }}

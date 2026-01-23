@@ -76,6 +76,29 @@ const formatDuration = (durationNs) => {
   return result;
 };
 
+const waitForAccess = async (
+  authedActor,
+  identity,
+  paywallId,
+  timeoutMs = 10000,
+  intervalMs = 500,
+) => {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const hasAccess = await authedActor.hasAccess(
+        identity.getPrincipal(),
+        paywallId,
+      );
+      if (hasAccess) return true;
+    } catch (error) {
+      console.warn('Access check during wait failed:', error);
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  return false;
+};
+
 const unwrapSubaccount = (subaccount) => {
   if (!Array.isArray(subaccount) || subaccount.length === 0) {
     return undefined;
@@ -197,6 +220,7 @@ const detectDevTools = () => {
 
 const runTamperCheck = async () => {
   if (!tamperContext || tamperDetected) return !tamperDetected;
+  if (tamperContext.noTamper) return true;
   const integrityOk = await checkScriptIntegrity(
     tamperContext.scriptTag,
     tamperContext.expectedScriptHash,
@@ -204,7 +228,11 @@ const runTamperCheck = async () => {
   if (!integrityOk) {
     markTamper('Script integrity check failed');
   }
-  if (!isMobile() && !detectDevTools()) {
+  if (
+    tamperContext.devtoolsCheckEnabled &&
+    !isMobile() &&
+    !detectDevTools()
+  ) {
     markTamper('Dev tools detected');
   }
   return !tamperDetected;
@@ -399,9 +427,24 @@ const setupPaymentUI = async (
       try {
         const result = await authedActor.payFromBalance(paywallId);
         if ('Ok' in result) {
-          revealContent(overlay);
-          if (onAccessGranted) {
-            await onAccessGranted();
+          console.info('Payment result:', stringifyWithBigInt(result));
+          console.info('Paywall ID:', paywallId);
+          console.info('Paywall config:', stringifyWithBigInt(config));
+          console.info('User principal:', identity.getPrincipal().toText());
+          const confirmed = await waitForAccess(
+            authedActor,
+            identity,
+            paywallId,
+          );
+          if (confirmed) {
+            revealContent(overlay);
+            if (onAccessGranted) {
+              await onAccessGranted();
+            }
+          } else {
+            alert(
+              'Payment processed, but access confirmation is still pending. Please wait a moment and click "Refresh balance" or re-login.',
+            );
           }
           return;
         }
@@ -795,6 +838,11 @@ const run = async () => {
     if (!backendId) return;
 
     const expectedScriptHash = getExpectedScriptHash(scriptTag);
+    const noTamper =
+      scriptTag.dataset.noTamper === 'true' || window.PAYWALL_NO_TAMPER;
+    const devtoolsCheckEnabled =
+      scriptTag.dataset.devtoolsCheck === 'true' ||
+      window.PAYWALL_DEVTOOLS_CHECK === true;
     const agent = new HttpAgent({ host: 'https://icp0.io' });
     const actor = Actor.createActor(idlFactory, {
       agent,
@@ -896,11 +944,15 @@ const run = async () => {
       loading.style.display = 'block';
       errorMessage.style.display = 'none';
       try {
+        const origin = window.location.origin;
+        const derivationOrigin = origin.replace(/\.raw\./i, '.');
         const authClient = await AuthClient.create();
         await new Promise((resolve, reject) => {
           authClient.login({
             identityProvider: II_URL,
             maxTimeToLive: BigInt(8 * 60 * 60 * 1_000_000_000),
+            derivationOrigin:
+              derivationOrigin !== origin ? derivationOrigin : undefined,
             onSuccess: resolve,
             onError: reject,
           });
@@ -959,6 +1011,8 @@ const run = async () => {
       paywallId,
       scriptTag,
       expectedScriptHash,
+      noTamper,
+      devtoolsCheckEnabled,
       overlay,
     };
 
@@ -989,10 +1043,15 @@ const run = async () => {
           agent: handshakeAgent,
           canisterId: backendId,
         });
-        const hasAccess = await authedActor.hasAccess(
-          identity.getPrincipal(),
-          paywallId,
-        );
+        let hasAccess = false;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          hasAccess = await authedActor.hasAccess(
+            identity.getPrincipal(),
+            paywallId,
+          );
+          if (hasAccess) break;
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
         const tamperOk = await runTamperCheck();
         if (!tamperOk) {
           if (onFailure) onFailure();

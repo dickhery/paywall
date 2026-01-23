@@ -76,6 +76,35 @@ const formatDuration = (durationNs) => {
   return result;
 };
 
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const pollHasAccess = async (
+  authedActor,
+  principal,
+  paywallId,
+  maxAttempts = 10,
+  delayMs = 1000,
+) => {
+  console.log(`Starting pollHasAccess for paywall ${paywallId}`);
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      const hasAccess = await authedActor.hasAccess(principal, paywallId);
+      if (hasAccess) {
+        console.log(`Access granted on attempt ${attempt + 1}`);
+        return true;
+      }
+      console.log(`No access on attempt ${attempt + 1}, retrying...`);
+    } catch (error) {
+      console.warn(`Poll attempt ${attempt + 1} failed:`, error);
+    }
+    if (attempt < maxAttempts - 1) {
+      await delay(delayMs);
+    }
+  }
+  console.log(`Polling failed after ${maxAttempts} attempts`);
+  return false;
+};
+
 const unwrapSubaccount = (subaccount) => {
   if (!Array.isArray(subaccount) || subaccount.length === 0) {
     return undefined;
@@ -399,10 +428,24 @@ const setupPaymentUI = async (
       try {
         const result = await authedActor.payFromBalance(paywallId);
         if ('Ok' in result) {
-          revealContent(overlay);
-          if (onAccessGranted) {
-            await onAccessGranted();
+          console.log('Payment succeeded, polling for access confirmation...');
+          const confirmedAccess = await pollHasAccess(
+            authedActor,
+            identity.getPrincipal(),
+            paywallId,
+          );
+          if (confirmedAccess) {
+            console.log('Access confirmed after payment');
+            revealContent(overlay);
+            if (onAccessGranted) {
+              await onAccessGranted();
+            }
+            return;
           }
+          console.warn('Access not confirmed after polling');
+          alert(
+            'Payment succeeded, but access is still propagating. Please wait a moment and refresh.',
+          );
           return;
         }
         const errorText = result.Err || 'Unknown error';
@@ -856,10 +899,22 @@ const run = async () => {
             identity.getPrincipal(),
             paywallId,
           );
-          if (!stillHasAccess) {
-            clearAccessTimers();
-            await showPaywall(authedActor, identity);
+          if (stillHasAccess) {
+            return;
           }
+          console.log('Periodic check failed, confirming...');
+          await delay(1000);
+          const confirmAccess = await authedActor.hasAccess(
+            identity.getPrincipal(),
+            paywallId,
+          );
+          if (confirmAccess) {
+            console.log('Access confirmed on second check');
+            return;
+          }
+          console.warn('Access expired on periodic check');
+          clearAccessTimers();
+          await showPaywall(authedActor, identity);
         } catch (error) {
           console.error('Periodic access check failed:', error);
           await showPaywall(authedActor, identity);
@@ -913,19 +968,11 @@ const run = async () => {
           canisterId: backendId,
         });
 
-        let hasAccess = false;
-        try {
-          hasAccess = await authedActor.hasAccess(
-            identity.getPrincipal(),
-            paywallId,
-          );
-        } catch (error) {
-          console.error('Access check failed:', error);
-          errorMessage.textContent =
-            'Unable to verify access. Please log in again.';
-          errorMessage.style.display = 'block';
-          return;
-        }
+        const hasAccess = await pollHasAccess(
+          authedActor,
+          identity.getPrincipal(),
+          paywallId,
+        );
         if (hasAccess) {
           revealContent(overlay);
           await scheduleAccessTimers(authedActor, identity);
@@ -968,6 +1015,28 @@ const run = async () => {
     }
 
     overlay.querySelector('#paywall-login-prompt').textContent = loginPromptText;
+
+    const authClient = await AuthClient.create();
+    const isAuthed = await authClient.isAuthenticated();
+    if (isAuthed) {
+      const identity = authClient.getIdentity();
+      agent.replaceIdentity(identity);
+      const authedActor = Actor.createActor(idlFactory, {
+        agent,
+        canisterId: backendId,
+      });
+      const hasAccess = await pollHasAccess(
+        authedActor,
+        identity.getPrincipal(),
+        paywallId,
+      );
+      if (hasAccess) {
+        revealContent(overlay);
+        await scheduleAccessTimers(authedActor, identity);
+        return;
+      }
+    }
+
     showOverlay(overlay);
 
     window.paywallHandshake = async (onFailure) => {

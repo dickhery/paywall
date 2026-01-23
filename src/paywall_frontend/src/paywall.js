@@ -98,8 +98,12 @@ const waitForAccess = async (
     attempts += 1;
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
+  const waitSeconds = (maxAttempts * delayMs) / 1000;
   console.error(
-    `Access grant timeout after ${maxAttempts} attempts (${(maxAttempts * delayMs) / 1000}s).`,
+    `Access grant timeout after ${maxAttempts} attempts (${waitSeconds}s).`,
+  );
+  alert(
+    `Access not detected after waiting ${waitSeconds}s. Network delay is possible. Wait 10-30 seconds, then retry or re-login. Check console logs for details.`,
   );
   return false;
 };
@@ -957,21 +961,24 @@ const run = async () => {
 
         let hasAccess = false;
         try {
+          loading.style.display = 'block';
           hasAccess = await authedActor.hasAccess(
             identity.getPrincipal(),
             paywallId,
           );
           if (!hasAccess) {
             hasAccess = await waitForAccess(authedActor, identity, paywallId, {
-              maxAttempts: 5,
+              maxAttempts: 60,
               delayMs: 500,
             });
           }
+          loading.style.display = 'none';
         } catch (error) {
           console.error('Access check failed:', error);
           errorMessage.textContent =
             'Unable to verify access. Please log in again.';
           errorMessage.style.display = 'block';
+          loading.style.display = 'none';
           return;
         }
         if (hasAccess) {
@@ -979,6 +986,36 @@ const run = async () => {
           await scheduleAccessTimers(authedActor, identity);
           return;
         }
+
+        const retryButton = document.createElement('button');
+        retryButton.textContent = 'Retry Access Check';
+        retryButton.style.cssText =
+          'background:#3b82f6;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:14px;cursor:pointer;margin-top:12px;';
+        retryButton.addEventListener('click', async () => {
+          retryButton.disabled = true;
+          retryButton.textContent = 'Checking...';
+          loading.style.display = 'block';
+          try {
+            const retryHasAccess = await authedActor.hasAccess(
+              identity.getPrincipal(),
+              paywallId,
+            );
+            if (retryHasAccess) {
+              revealContent(overlay);
+              await scheduleAccessTimers(authedActor, identity);
+              return;
+            }
+            alert('Access still not detected. Wait longer or check console.');
+          } catch (error) {
+            console.error('Retry failed:', error);
+            alert('Retry failed. Please re-login.');
+          } finally {
+            loading.style.display = 'none';
+            retryButton.disabled = false;
+            retryButton.textContent = 'Retry Access Check';
+          }
+        });
+        overlay.querySelector('#paywall-panel').appendChild(retryButton);
 
         removeLoginControls(overlay);
         await setupPaymentUI(

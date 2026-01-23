@@ -367,14 +367,15 @@ function App() {
         `Embed script (place in the <head> and load after critical content):\n` +
         `${scriptTag}\n\n` +
         `Integration requirements:\n` +
-        `- Add the script tag exactly as shown in the <head> of your HTML. Ensure it loads after critical content (defer/async if needed, test for compatibility).\n` +
+        `- Add the script tag exactly as shown in the <head> of your HTML. Ensure it loads after critical content (defer/async if needed, test for compatibility). Do not cause page reloads after payment.\n` +
         `- Ensure the live domain is ${config.target_url} (not a draft/preview URL) so the paywall does not disable itself due to origin mismatch.\n` +
         `- If your app has a backend, configure CORS to allow ${targetOrigin} (or '*' for quick testing). Example headers: Access-Control-Allow-Origin: ${targetOrigin}; Access-Control-Allow-Methods: GET, POST, OPTIONS; Access-Control-Allow-Headers: Content-Type, Authorization.\n` +
         `- Do not block existing layout, ads, or app scripts; the paywall script handles the overlay and checks without destructive changes.\n` +
+        `- Handle post-payment gracefully: Avoid reloading the page immediately after payment. The script uses a 60-second grace period (via localStorage) to prevent re-blocking during propagation delays or minor re-renders.\n` +
         `- After integration, verify access checks run before showing protected UI:\n` +
-        `  - Frontend: call window.paywallHandshake((hasAccess) => { if (!hasAccess) { /* hide UI or redirect */ } }) before rendering protected content. Re-check every 30 seconds to enforce session expiry.\n` +
+        `  - Frontend: call window.paywallHandshake((hasAccess) => { if (!hasAccess) { /* hide UI or redirect */ } }) before rendering protected content. Re-check every 30 seconds to enforce session expiry. If using React/Vue, call in useEffect or mounted hook.\n` +
         `  - Backend (Motoko): check access before returning sensitive data, e.g. if (not (await Paywall.hasAccess(caller, "${id}"))) { Debug.trap("Access denied"); }.\n` +
-        `  - Test flow: unauthenticated users see paywall → pay/login → app loads → session expiry re-blocks.\n` +
+        `  - Test flow: unauthenticated users see paywall → pay/login → app loads without reload → session expiry re-blocks.\n` +
         `- Strengthen enforcement: periodically re-check access, and keep sensitive logic in canisters guarded by hasAccess.\n\n` +
         `Paywall details:\n` +
         `- Paywall ID: ${id}\n` +
@@ -382,6 +383,7 @@ function App() {
         `- Login prompt: "${loginPrompt}"\n` +
         `- Payment prompt: "${paymentPrompt}"\n\n` +
         `Troubleshooting:\n` +
+        `- Paywall reappears after payment: Ensure no page reloads post-payment. The grace period handles brief delays—test with localStorage cleared.\n` +
         `- "Disallowed origin" error: update CORS to allow ${targetOrigin} and redeploy.\n` +
         `- "Paywall disabled: running on draft origin": ensure the page URL matches ${config.target_url} exactly.\n` +
         `- Script not loading: verify ${scriptTag} is reachable and no CSP blocks it.\n` +

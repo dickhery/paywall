@@ -13,6 +13,7 @@ const TAMPER_CHECK_INTERVAL_MS = 5000;
 const DEVTOOLS_THRESHOLD_PX = 160;
 const OVERLAY_STYLE =
   'position:fixed;inset:0;background:rgba(6,9,20,0.88);color:#fff;z-index:999999999;display:flex;align-items:center;justify-content:center;padding:24px;pointer-events:all;';
+const getRecentPaymentKey = (paywallId) => `paywall_recent_${paywallId}`;
 let storedBodyStyles = null;
 let overlayObserver = null;
 let paywallActive = false;
@@ -102,6 +103,24 @@ const pollHasAccess = async (
     }
   }
   console.log(`Polling failed after ${maxAttempts} attempts`);
+  return false;
+};
+
+const checkAccessWithGrace = async (authedActor, principal, paywallId) => {
+  let hasAccess = await authedActor.hasAccess(principal, paywallId);
+  if (hasAccess) return true;
+
+  const key = getRecentPaymentKey(paywallId);
+  const timestampStr = localStorage.getItem(key);
+  if (timestampStr) {
+    const timestamp = Number.parseInt(timestampStr, 10);
+    if (!Number.isNaN(timestamp) && Date.now() - timestamp < 60000) {
+      hasAccess = await pollHasAccess(authedActor, principal, paywallId, 20, 500);
+      if (hasAccess) return true;
+    } else {
+      localStorage.removeItem(key);
+    }
+  }
   return false;
 };
 
@@ -435,6 +454,7 @@ const setupPaymentUI = async (
             paywallId,
           );
           if (confirmedAccess) {
+            localStorage.setItem(getRecentPaymentKey(paywallId), Date.now().toString());
             console.log('Access confirmed after payment');
             revealContent(overlay);
             if (onAccessGranted) {
@@ -968,7 +988,7 @@ const run = async () => {
           canisterId: backendId,
         });
 
-        const hasAccess = await pollHasAccess(
+        const hasAccess = await checkAccessWithGrace(
           authedActor,
           identity.getPrincipal(),
           paywallId,
@@ -1025,7 +1045,7 @@ const run = async () => {
         agent,
         canisterId: backendId,
       });
-      const hasAccess = await pollHasAccess(
+      const hasAccess = await checkAccessWithGrace(
         authedActor,
         identity.getPrincipal(),
         paywallId,
@@ -1058,10 +1078,28 @@ const run = async () => {
           agent: handshakeAgent,
           canisterId: backendId,
         });
-        const hasAccess = await authedActor.hasAccess(
+        let hasAccess = await authedActor.hasAccess(
           identity.getPrincipal(),
           paywallId,
         );
+        if (!hasAccess) {
+          const key = getRecentPaymentKey(paywallId);
+          const timestampStr = localStorage.getItem(key);
+          if (timestampStr) {
+            const timestamp = Number.parseInt(timestampStr, 10);
+            if (!Number.isNaN(timestamp) && Date.now() - timestamp < 60000) {
+              hasAccess = await pollHasAccess(
+                authedActor,
+                identity.getPrincipal(),
+                paywallId,
+                20,
+                500,
+              );
+            } else {
+              localStorage.removeItem(key);
+            }
+          }
+        }
         const tamperOk = await runTamperCheck();
         if (!tamperOk) {
           if (onFailure) onFailure();

@@ -8,7 +8,7 @@ import { Principal } from '@dfinity/principal';
 const II_URL = 'https://id.ai/#authorize';
 const DEFAULT_LEDGER_ID = 'ryjl3-tyaaa-aaaaa-aaaba-cai';
 const LEDGER_FEE_E8S = 10000n;
-const PERIODIC_CHECK_INTERVAL_MS = 30000;
+const PERIODIC_CHECK_INTERVAL_MS = 45000;
 const TAMPER_CHECK_INTERVAL_MS = 5000;
 const DEVTOOLS_THRESHOLD_PX = 160;
 const OVERLAY_STYLE =
@@ -80,20 +80,27 @@ const waitForAccess = async (
   authedActor,
   identity,
   paywallId,
-  { maxAttempts = 10, delayMs = 500 } = {},
+  { maxAttempts = 60, delayMs = 500 } = {},
 ) => {
   let attempts = 0;
   while (attempts < maxAttempts) {
+    console.log(
+      `Waiting for access... attempt ${attempts + 1}/${maxAttempts}`,
+    );
     const hasAccess = await authedActor.hasAccess(
       identity.getPrincipal(),
       paywallId,
     );
     if (hasAccess) {
+      console.log(`Access granted after ${attempts + 1} attempts.`);
       return true;
     }
     attempts += 1;
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
+  console.error(
+    `Access grant timeout after ${maxAttempts} attempts (${(maxAttempts * delayMs) / 1000}s).`,
+  );
   return false;
 };
 
@@ -308,6 +315,7 @@ const setupPaymentUI = async (
   onAccessGranted,
 ) => {
   const details = overlay.querySelector('#paywall-details');
+  const loading = overlay.querySelector('#paywall-loading');
   details.style.display = 'block';
   details.innerHTML = '';
 
@@ -420,10 +428,16 @@ const setupPaymentUI = async (
       try {
         const result = await authedActor.payFromBalance(paywallId);
         if ('Ok' in result) {
+          if (loading) {
+            loading.style.display = 'block';
+          }
           const hasAccess = await waitForAccess(authedActor, identity, paywallId);
+          if (loading) {
+            loading.style.display = 'none';
+          }
           if (!hasAccess) {
             alert(
-              'Payment processed, but access is not available yet. Please wait a few seconds and re-login to check access.',
+              'Payment processed, but access not detected yet. This can happen due to network delays. Please wait 10-30 seconds, then click "Refresh balance" or re-login to check access. If it persists, check console logs.',
             );
             return;
           }

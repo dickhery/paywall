@@ -76,6 +76,27 @@ const formatDuration = (durationNs) => {
   return result;
 };
 
+const waitForAccess = async (
+  authedActor,
+  identity,
+  paywallId,
+  { maxAttempts = 10, delayMs = 500 } = {},
+) => {
+  let attempts = 0;
+  while (attempts < maxAttempts) {
+    const hasAccess = await authedActor.hasAccess(
+      identity.getPrincipal(),
+      paywallId,
+    );
+    if (hasAccess) {
+      return true;
+    }
+    attempts += 1;
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  return false;
+};
+
 const unwrapSubaccount = (subaccount) => {
   if (!Array.isArray(subaccount) || subaccount.length === 0) {
     return undefined;
@@ -399,6 +420,13 @@ const setupPaymentUI = async (
       try {
         const result = await authedActor.payFromBalance(paywallId);
         if ('Ok' in result) {
+          const hasAccess = await waitForAccess(authedActor, identity, paywallId);
+          if (!hasAccess) {
+            alert(
+              'Payment processed, but access is not available yet. Please wait a few seconds and re-login to check access.',
+            );
+            return;
+          }
           revealContent(overlay);
           if (onAccessGranted) {
             await onAccessGranted();
@@ -919,6 +947,12 @@ const run = async () => {
             identity.getPrincipal(),
             paywallId,
           );
+          if (!hasAccess) {
+            hasAccess = await waitForAccess(authedActor, identity, paywallId, {
+              maxAttempts: 5,
+              delayMs: 500,
+            });
+          }
         } catch (error) {
           console.error('Access check failed:', error);
           errorMessage.textContent =

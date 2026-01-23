@@ -76,6 +76,29 @@ const formatDuration = (durationNs) => {
   return result;
 };
 
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const pollHasAccess = async (
+  authedActor,
+  principal,
+  paywallId,
+  maxAttempts = 6,
+  delayMs = 500,
+) => {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      const hasAccess = await authedActor.hasAccess(principal, paywallId);
+      if (hasAccess) return true;
+    } catch (error) {
+      console.warn(`hasAccess poll attempt ${attempt + 1} failed:`, error);
+    }
+    if (attempt < maxAttempts - 1) {
+      await delay(delayMs);
+    }
+  }
+  return false;
+};
+
 const unwrapSubaccount = (subaccount) => {
   if (!Array.isArray(subaccount) || subaccount.length === 0) {
     return undefined;
@@ -399,10 +422,21 @@ const setupPaymentUI = async (
       try {
         const result = await authedActor.payFromBalance(paywallId);
         if ('Ok' in result) {
-          revealContent(overlay);
-          if (onAccessGranted) {
-            await onAccessGranted();
+          const confirmedAccess = await pollHasAccess(
+            authedActor,
+            identity.getPrincipal(),
+            paywallId,
+          );
+          if (confirmedAccess) {
+            revealContent(overlay);
+            if (onAccessGranted) {
+              await onAccessGranted();
+            }
+            return;
           }
+          alert(
+            'Payment succeeded, but access is still propagating. Please wait a moment and refresh.',
+          );
           return;
         }
         const errorText = result.Err || 'Unknown error';
@@ -856,10 +890,19 @@ const run = async () => {
             identity.getPrincipal(),
             paywallId,
           );
-          if (!stillHasAccess) {
-            clearAccessTimers();
-            await showPaywall(authedActor, identity);
+          if (stillHasAccess) {
+            return;
           }
+          await delay(1000);
+          const confirmAccess = await authedActor.hasAccess(
+            identity.getPrincipal(),
+            paywallId,
+          );
+          if (confirmAccess) {
+            return;
+          }
+          clearAccessTimers();
+          await showPaywall(authedActor, identity);
         } catch (error) {
           console.error('Periodic access check failed:', error);
           await showPaywall(authedActor, identity);
@@ -913,19 +956,11 @@ const run = async () => {
           canisterId: backendId,
         });
 
-        let hasAccess = false;
-        try {
-          hasAccess = await authedActor.hasAccess(
-            identity.getPrincipal(),
-            paywallId,
-          );
-        } catch (error) {
-          console.error('Access check failed:', error);
-          errorMessage.textContent =
-            'Unable to verify access. Please log in again.';
-          errorMessage.style.display = 'block';
-          return;
-        }
+        const hasAccess = await pollHasAccess(
+          authedActor,
+          identity.getPrincipal(),
+          paywallId,
+        );
         if (hasAccess) {
           revealContent(overlay);
           await scheduleAccessTimers(authedActor, identity);
@@ -968,6 +1003,28 @@ const run = async () => {
     }
 
     overlay.querySelector('#paywall-login-prompt').textContent = loginPromptText;
+
+    const authClient = await AuthClient.create();
+    const isAuthed = await authClient.isAuthenticated();
+    if (isAuthed) {
+      const identity = authClient.getIdentity();
+      agent.replaceIdentity(identity);
+      const authedActor = Actor.createActor(idlFactory, {
+        agent,
+        canisterId: backendId,
+      });
+      const hasAccess = await pollHasAccess(
+        authedActor,
+        identity.getPrincipal(),
+        paywallId,
+      );
+      if (hasAccess) {
+        revealContent(overlay);
+        await scheduleAccessTimers(authedActor, identity);
+        return;
+      }
+    }
+
     showOverlay(overlay);
 
     window.paywallHandshake = async (onFailure) => {

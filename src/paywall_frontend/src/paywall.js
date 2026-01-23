@@ -82,20 +82,26 @@ const pollHasAccess = async (
   authedActor,
   principal,
   paywallId,
-  maxAttempts = 6,
-  delayMs = 500,
+  maxAttempts = 10,
+  delayMs = 1000,
 ) => {
+  console.log(`Starting pollHasAccess for paywall ${paywallId}`);
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {
       const hasAccess = await authedActor.hasAccess(principal, paywallId);
-      if (hasAccess) return true;
+      if (hasAccess) {
+        console.log(`Access granted on attempt ${attempt + 1}`);
+        return true;
+      }
+      console.log(`No access on attempt ${attempt + 1}, retrying...`);
     } catch (error) {
-      console.warn(`hasAccess poll attempt ${attempt + 1} failed:`, error);
+      console.warn(`Poll attempt ${attempt + 1} failed:`, error);
     }
     if (attempt < maxAttempts - 1) {
       await delay(delayMs);
     }
   }
+  console.log(`Polling failed after ${maxAttempts} attempts`);
   return false;
 };
 
@@ -422,18 +428,21 @@ const setupPaymentUI = async (
       try {
         const result = await authedActor.payFromBalance(paywallId);
         if ('Ok' in result) {
+          console.log('Payment succeeded, polling for access confirmation...');
           const confirmedAccess = await pollHasAccess(
             authedActor,
             identity.getPrincipal(),
             paywallId,
           );
           if (confirmedAccess) {
+            console.log('Access confirmed after payment');
             revealContent(overlay);
             if (onAccessGranted) {
               await onAccessGranted();
             }
             return;
           }
+          console.warn('Access not confirmed after polling');
           alert(
             'Payment succeeded, but access is still propagating. Please wait a moment and refresh.',
           );
@@ -893,14 +902,17 @@ const run = async () => {
           if (stillHasAccess) {
             return;
           }
+          console.log('Periodic check failed, confirming...');
           await delay(1000);
           const confirmAccess = await authedActor.hasAccess(
             identity.getPrincipal(),
             paywallId,
           );
           if (confirmAccess) {
+            console.log('Access confirmed on second check');
             return;
           }
+          console.warn('Access expired on periodic check');
           clearAccessTimers();
           await showPaywall(authedActor, identity);
         } catch (error) {

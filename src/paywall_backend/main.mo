@@ -889,4 +889,19 @@ persistent actor Paywall {
     };
     paywallConfigs.put(id, newConfig);
   };
+
+  public shared(msg) func deletePaywall(id : Text) : async () {
+    let ?_ = paywallConfigs.get(id) else return;
+    let ownerIds = switch (ownedPaywalls.get(msg.caller)) {
+      case null return;
+      case (?ids) ids;
+    };
+    let isOwner = Array.find<Text>(ownerIds, func(value : Text) : Bool { value == id }) != null;
+    if (not isOwner) {
+      return;
+    };
+    paywallConfigs.delete(id);
+    let updatedIds = Array.filter<Text>(ownerIds, func(value : Text) : Bool { value != id });
+    ownedPaywalls.put(msg.caller, updatedIds);
+  };
 }

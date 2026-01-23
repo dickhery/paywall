@@ -558,6 +558,29 @@ function App() {
     await fetchOwnedPaywalls();
   };
 
+  const handleDeletePaywall = async (id) => {
+    const warningMessage = `Are you sure you want to delete this paywall?\n\nThis action cannot be undone.\n\nImportant warnings:\n- This may affect websites that have integrated this paywall.\n- You will need to remove the paywall script from any projects you integrated it into.\n- Deleting the paywall will cause any users with ICP in their paywall account for this paywall to lose their ICP.`;
+
+    if (!window.confirm(warningMessage)) {
+      return;
+    }
+
+    try {
+      const actor = await getActor(authClient);
+      await actor.deletePaywall(id);
+      setExpandedPaywalls((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      setEditingId((current) => (current === id ? null : current));
+      await fetchOwnedPaywalls();
+    } catch (error) {
+      console.error('Failed to delete paywall:', error);
+      alert('Failed to delete paywall. Please try again.');
+    }
+  };
+
   const formatDestinationLabel = (destination) => {
     if ('Principal' in destination.dest) {
       const entry = destination.dest.Principal;
@@ -1039,9 +1062,18 @@ function App() {
                             Paste this prompt into your vibe coding app to integrate
                             the paywall in one pass.
                           </p>
-                          <button type="button" onClick={() => startEdit(id, config)}>
-                            Edit
-                          </button>
+                          <div className="row">
+                            <button type="button" onClick={() => startEdit(id, config)}>
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              className="button-danger"
+                              onClick={() => handleDeletePaywall(id)}
+                            >
+                              Delete paywall
+                            </button>
+                          </div>
                           {editingId === id && (
                             <form
                               className="form"

@@ -8,7 +8,7 @@ const PAYWALL_MIN_FEE_E8S = 100_000n;
 const MAX_DESTINATIONS = 3;
 const MAINNET_II_URL = 'https://id.ai/#authorize';
 const WATERMARK_ID = 'wm-paywall-v1-abc123-unique';
-const TRACKING_URL = 'https://your-tracker.com/track';
+const TRACKING_URL = 'https://r5s6s-waaaa-aaaab-ac3za-cai.icp0.io/track';
 const FEE_ACCOUNT_IDENTIFIER =
   '2a4abcd2278509654f9a26b885ecb49b8619bffe58a6acb2e3a5e3c7fb96020d';
 

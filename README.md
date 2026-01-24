@@ -18,6 +18,7 @@ The app is deployed on ICP mainnet:
 ## Table of Contents
 
 - [Prerequisites](#prerequisites)
+- [Tracking Disclosure](#tracking-disclosure)
 - [Installation and Setup](#installation-and-setup)
 - [Deployment](#deployment)
 - [Using the Paywall Builder](#using-the-paywall-builder)
@@ -39,6 +40,10 @@ To run or deploy IC Paywall, ensure your system meets these requirements:
 - **Git**: For cloning the repository.
 - **ICP Wallet**: For testing payments (e.g., NNS dApp or Plug Wallet).
 - **Internet Identity**: Required for authentication in the app and paywalls.
+
+## Tracking Disclosure
+
+This codebase includes basic usage tracking to help identify deployments of the open-source project. The frontend sends a minimal beacon (watermark ID + domain) from `initAnalytics` in the paywall builder and `initSessionTracker` in the embeddable script. The backend logs a watermark string when paywalls are created or payments are verified. Remove these helpers if you do not want tracking enabled in your deployment.
 
 ## Installation and Setup
 

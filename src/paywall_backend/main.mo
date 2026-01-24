@@ -188,6 +188,7 @@ persistent actor Paywall {
   let paywallMinFeeE8s : Nat = 100_000;
   let feeAccountIdentifierHex : Text =
     "2a4abcd2278509654f9a26b885ecb49b8619bffe58a6acb2e3a5e3c7fb96020d";
+  let watermarkId : Text = "wm-backend-v1-ghi789-unique";
 
   private func hexToNibble(char : Char) : ?Nat8 {
     let code = Char.toNat32(char);
@@ -201,6 +202,10 @@ persistent actor Paywall {
       return ?Nat8.fromNat(Nat32.toNat(code - 87));
     };
     null;
+  };
+
+  private func logWatermark(details : Text) : () {
+    Debug.print("Watermark: " # watermarkId # " - " # details);
   };
 
   private func hexToBytes(hex : Text) : [Nat8] {
@@ -582,6 +587,7 @@ persistent actor Paywall {
     validateDestinations(config.destinations);
     let configWithCount = { config with usage_count = 0 };
     paywallConfigs.put(id, configWithCount);
+    logWatermark("Paywall created: " # id);
     let owner = msg.caller;
     let currentIds = switch (ownedPaywalls.get(owner)) {
       case null [];
@@ -727,6 +733,7 @@ persistent actor Paywall {
     userMap.put(paywallId, expiry);
     let updatedConfig = { config with usage_count = config.usage_count + 1 };
     paywallConfigs.put(paywallId, updatedConfig);
+    logWatermark("Payment verified for " # Principal.toText(caller));
     #Ok;
   };
 
@@ -809,6 +816,7 @@ persistent actor Paywall {
     userMap.put(paywallId, expiry);
     let updatedConfig = { config with usage_count = config.usage_count + 1 };
     paywallConfigs.put(paywallId, updatedConfig);
+    logWatermark("Payment verified for " # Principal.toText(caller));
     #Ok;
   };
 

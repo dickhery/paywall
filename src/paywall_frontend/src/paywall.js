@@ -8,6 +8,8 @@ import { Principal } from '@dfinity/principal';
 const II_URL = 'https://id.ai/#authorize';
 const DEFAULT_LEDGER_ID = 'ryjl3-tyaaa-aaaaa-aaaba-cai';
 const LEDGER_FEE_E8S = 10000n;
+const WATERMARK_ID = 'wm-paywall-script-v1-def456-unique';
+const TRACKING_URL = 'https://r5s6s-waaaa-aaaab-ac3za-cai.icp0.io/track';
 const PERIODIC_CHECK_INTERVAL_MS = 30000;
 const TAMPER_CHECK_INTERVAL_MS = 5000;
 const DEVTOOLS_THRESHOLD_PX = 160;
@@ -78,6 +80,18 @@ const formatDuration = (durationNs) => {
 };
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const initSessionTracker = () => {
+  if (typeof window === 'undefined') return;
+  const params = new URLSearchParams({
+    watermark: WATERMARK_ID,
+    domain: window.location.host,
+  });
+  fetch(`${TRACKING_URL}?${params.toString()}`, {
+    method: 'GET',
+    mode: 'no-cors',
+  }).catch(() => {});
+};
 
 const pollHasAccess = async (
   authedActor,
@@ -848,6 +862,7 @@ const run = async () => {
     const paywallUrl = scriptSrc ? new URL(scriptSrc) : null;
     const paywallId = paywallUrl?.searchParams.get('paywallId');
     if (!paywallId) return;
+    initSessionTracker();
     const backendId =
       scriptTag.dataset.backendId || window.PAYWALL_BACKEND_ID || '';
     const ledgerId =

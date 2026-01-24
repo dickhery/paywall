@@ -22,6 +22,7 @@ The app is deployed on ICP mainnet:
 - [Deployment](#deployment)
 - [Using the Paywall Builder](#using-the-paywall-builder)
 - [Integrating the Paywall Script](#integrating-the-paywall-script)
+- [Integrating with Vibe Coding](#integrating-with-vibe-coding)
 - [Strengthening Projects for Integrity](#strengthening-projects-for-integrity)
 - [Editing and Deleting Paywalls](#editing-and-deleting-paywalls)
 - [How It Works](#how-it-works)
@@ -110,7 +111,7 @@ The Paywall Builder is the user interface for creating and managing paywalls. Ac
        - **Principal**: Send to an ICP principal (e.g., wallet or canister). Enable "Convert to Cycles" to top up canister cycles via CMC.
        - **Account ID**: Send to a 64-hex ledger account ID (legacy format; no cycle conversion).
      - Example: 70% to your wallet principal, 30% to a canister for cycles.
-   - **Target Canister Principal**: Reference canister ID for the project (e.g., for audits or hooks; not used for enforcement).
+   - **Associated URL**: The URL where this paywall will be deployed (e.g., https://example.com).
    - **Session Duration**: Set access time post-payment (days/hours/minutes/seconds).
    - **Custom Prompts** (Optional): Login and payment messages for user experience.
 
@@ -122,6 +123,7 @@ The Paywall Builder is the user interface for creating and managing paywalls. Ac
 
 - **My Paywalls**: Lists your created paywalls with configs, usage counts (refreshable), and embed scripts.
 - **Usage Count**: Tracks payments; refresh to update from backend.
+- **Vibe Coding Prompt**: For each paywall, a pre-generated prompt is provided that can be copied to integrate the paywall into vibe-coded apps (e.g., using AI-assisted coding tools). This prompt includes integration instructions, troubleshooting tips, and paywall details for seamless one-pass integration.
 
 ## Integrating the Paywall Script
 
@@ -155,6 +157,18 @@ Embed the generated script in your web project to enforce the paywall.
 - **Local Testing**: Use `dfx deploy --network local` and update script src to local URL (e.g., `http://<frontend-id>.localhost:4943/paywall.js?paywallId=<id>`).
 - **Payment Failures**: Ensure sufficient balance including fees. Check console for errors.
 
+## Integrating with Vibe Coding
+
+IC Paywall supports integration with AI-assisted coding tools like vibe coding apps. For each paywall in "My Paywalls", a customizable vibe coding prompt is generated. This prompt provides a complete guide to integrate the paywall in one pass, including:
+
+- The exact embed script tag.
+- CORS configuration instructions.
+- Frontend and backend enforcement tips (e.g., using `window.paywallHandshake` and `hasAccess` checks).
+- Troubleshooting for common issues like page reloads, origin mismatches, and access propagation.
+- Paywall details like price, prompts, and session duration.
+
+Copy the prompt and paste it into your vibe coding tool to automatically generate or update your app with paywall enforcement. This is ideal for vibe-coded apps, ensuring seamless monetization without manual coding.
+
 ## Strengthening Projects for Integrity
 
 For maximum security, combine client-side script with backend enforcement:
@@ -180,8 +194,13 @@ For maximum security, combine client-side script with backend enforcement:
 ## Editing and Deleting Paywalls
 
 - **Edit**: In "My Paywalls", click "Edit" to update config. Changes apply immediately.
-- **Delete**: Not directly supported yet; contact support or redeploy without the ID.
-  - **Warning**: Deleting loses all associated user accounts and funds in subaccounts. Users with balances will lose access/funds. Export data first if needed.
+- **Delete**: In "My Paywalls", click "Delete" to remove the paywall.
+  - **Warning**: Deleting a paywall is permanent and cannot be undone. This action will:
+    - Lose all associated user accounts and funds in subaccounts. Users with balances will lose access/funds—export data first if needed.
+    - Break any websites or apps that have integrated this paywall, potentially causing errors or unexpected behavior for users.
+    - Require manual removal of the paywall script from all integrated projects to avoid runtime issues.
+    - Disrupt ongoing sessions and payments; notify users and integrators in advance if possible.
+  - Proceed with caution, especially if the paywall is in active use.
 
 ## How It Works
 
@@ -209,4 +228,4 @@ Contributions welcome! Fork the repo, create a branch, and submit a PR. Follow c
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+See LICENSE

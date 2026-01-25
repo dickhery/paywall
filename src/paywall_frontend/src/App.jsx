@@ -5,6 +5,7 @@ import { createActor, paywall_backend } from 'declarations/paywall_backend';
 
 const ICP_TRANSFER_FEE_E8S = 10_000n;
 const PAYWALL_MIN_FEE_E8S = 100_000n;
+const PAYWALL_MIN_PRICE_E8S = 1_000_000n;
 const MAX_DESTINATIONS = 3;
 const MAINNET_II_URL = 'https://id.ai/#authorize';
 const WATERMARK_ID = 'wm-paywall-v1-abc123-unique';
@@ -282,6 +283,10 @@ function App() {
     }
     const sessionDurationNs = BigInt(totalSeconds) * 1_000_000_000n;
     const priceE8s = toE8s(priceIcp);
+    if (priceE8s < PAYWALL_MIN_PRICE_E8S) {
+      alert('Minimum price is 0.01 ICP.');
+      return;
+    }
     const feeE8s = calculateFeeE8s(priceE8s);
     if (priceE8s < feeE8s) {
       alert('Price must be at least the paywall fee (max(1% of price, 0.001 ICP)).');
@@ -559,6 +564,10 @@ function App() {
     }
     const sessionDurationNs = BigInt(totalSeconds) * 1_000_000_000n;
     const priceE8s = toE8s(editPriceIcp);
+    if (priceE8s < PAYWALL_MIN_PRICE_E8S) {
+      alert('Minimum price is 0.01 ICP.');
+      return;
+    }
     const feeE8s = calculateFeeE8s(priceE8s);
     if (priceE8s < feeE8s) {
       alert('Price must be at least the paywall fee (max(1% of price, 0.001 ICP)).');
@@ -696,14 +705,14 @@ function App() {
                 <input
                   type="number"
                   step="0.00000001"
-                  min="0"
+                  min="0.01"
                   value={priceIcp}
                   onChange={(event) => setPriceIcp(event.target.value)}
                   required
                 />
                 <span className="hint">
-                  Calculated fee: {formatIcp(createFeeE8s)} ICP. Net to split:{' '}
-                  {formatIcp(createNetE8s)} ICP.
+                  Minimum price: 0.01 ICP. Calculated fee: {formatIcp(createFeeE8s)}{' '}
+                  ICP. Net to split: {formatIcp(createNetE8s)} ICP.
                 </span>
               </label>
               <div className="form-field">
@@ -1104,7 +1113,7 @@ function App() {
                                 <input
                                   type="number"
                                   step="0.00000001"
-                                  min="0"
+                                  min="0.01"
                                   value={editPriceIcp}
                                   onChange={(event) =>
                                     setEditPriceIcp(event.target.value)
@@ -1112,8 +1121,9 @@ function App() {
                                   required
                                 />
                                 <span className="hint">
-                                  Calculated fee: {formatIcp(editFeeE8s)} ICP.
-                                  Net to split: {formatIcp(editNetE8s)} ICP.
+                                  Minimum price: 0.01 ICP. Calculated fee:{' '}
+                                  {formatIcp(editFeeE8s)} ICP. Net to split:{' '}
+                                  {formatIcp(editNetE8s)} ICP.
                                 </span>
                               </label>
                               <label>

@@ -186,6 +186,7 @@ persistent actor Paywall {
   transient let cmc : CyclesMintingCanister = actor ("rkp4c-7iaaa-aaaaa-aaaca-cai");
   let icpTransferFee : Nat = 10_000;
   let paywallMinFeeE8s : Nat = 100_000;
+  let paywallMinPriceE8s : Nat = 1_000_000;
   let feeAccountIdentifierHex : Text =
     "2a4abcd2278509654f9a26b885ecb49b8619bffe58a6acb2e3a5e3c7fb96020d";
   let watermarkId : Text = "wm-backend-v1-ghi789-unique";
@@ -585,6 +586,9 @@ persistent actor Paywall {
     let id = "pw-" # Nat.toText(nextPaywallId);
     nextPaywallId += 1;
     validateDestinations(config.destinations);
+    if (config.price_e8s < paywallMinPriceE8s) {
+      Debug.trap("Minimum price is 0.01 ICP (1_000_000 e8s)");
+    };
     let configWithCount = { config with usage_count = 0 };
     paywallConfigs.put(id, configWithCount);
     logWatermark("Paywall created: " # id);
@@ -874,7 +878,12 @@ persistent actor Paywall {
     let newConfig = {
       price_e8s = switch (updates.price_e8s) {
         case null config.price_e8s;
-        case (?value) value;
+        case (?value) {
+          if (value < paywallMinPriceE8s) {
+            Debug.trap("Minimum price is 0.01 ICP (1_000_000 e8s)");
+          };
+          value;
+        };
       };
       target_url = switch (updates.target_url) {
         case null config.target_url;

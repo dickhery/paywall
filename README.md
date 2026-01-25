@@ -233,4 +233,4 @@ Contributions welcome! Fork the repo, create a branch, and submit a PR. Follow c
 
 ## License
 
-See LICENSE
+See [LICENSE](/LICENSE)

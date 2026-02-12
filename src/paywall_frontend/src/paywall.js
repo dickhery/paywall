@@ -856,6 +856,9 @@ const revealContent = (overlay) => {
 
 const run = async () => {
   try {
+    // Pre-initialize AuthClient at script load (async, but not in click handler)
+    const authClient = await AuthClient.create();  // Moved here from click handler
+
     const scriptTag = document.querySelector('script[data-paywall]');
     if (!scriptTag) return;
     const scriptSrc = scriptTag.src || '';
@@ -981,12 +984,14 @@ const run = async () => {
     await ensureBodyReady();
 
     const overlay = buildOverlay(async () => {
+      console.log('Login button clicked - starting auth flow');  // Debug log
       const loading = overlay.querySelector('#paywall-loading');
       const errorMessage = overlay.querySelector('#paywall-error');
       loading.style.display = 'block';
       errorMessage.style.display = 'none';
       try {
-        const authClient = await AuthClient.create();
+        // Use pre-initialized authClient; call login() directly (no await before Promise)
+        console.log('Opening II login window');  // Debug log
         await new Promise((resolve, reject) => {
           authClient.login({
             identityProvider: II_URL,
@@ -1051,7 +1056,6 @@ const run = async () => {
 
     overlay.querySelector('#paywall-login-prompt').textContent = loginPromptText;
 
-    const authClient = await AuthClient.create();
     const isAuthed = await authClient.isAuthenticated();
     if (isAuthed) {
       const identity = authClient.getIdentity();
@@ -1080,7 +1084,6 @@ const run = async () => {
         return false;
       }
       try {
-        const authClient = await AuthClient.create();
         const isAuthed = await authClient.isAuthenticated();
         if (!isAuthed) {
           if (onFailure) onFailure();

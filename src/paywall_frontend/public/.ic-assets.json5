@@ -1,7 +1,10 @@
 [
   {
     "match": "**/*",
-    "security_policy": "standard"
+    "security_policy": "standard",
+    "headers": {
+      "Permissions-Policy": "clipboard-write=(self)"
+    }
     // Uncomment to disable the warning about using the standard policy:
     // "disable_security_policy_warning": true,
     // Uncomment to redirect raw.icp0.io to icp0.io:

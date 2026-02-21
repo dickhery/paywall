@@ -83,6 +83,7 @@ function App() {
   const [paywallConfigs, setPaywallConfigs] = useState({});
   const [refreshingPaywallId, setRefreshingPaywallId] = useState(null);
   const [expandedPaywalls, setExpandedPaywalls] = useState(new Set());
+  const [expandedSections, setExpandedSections] = useState(new Map());
   const [editingId, setEditingId] = useState(null);
   const [editPriceIcp, setEditPriceIcp] = useState('');
   const [editTargetUrl, setEditTargetUrl] = useState('');
@@ -360,6 +361,20 @@ function App() {
     });
   }, []);
 
+  const toggleSection = useCallback((id, sectionKey) => {
+    setExpandedSections((prev) => {
+      const next = new Map(prev);
+      const sections = new Set(next.get(id) || []);
+      if (sections.has(sectionKey)) {
+        sections.delete(sectionKey);
+      } else {
+        sections.add(sectionKey);
+      }
+      next.set(id, sections);
+      return next;
+    });
+  }, []);
+
   const buildEmbedScript = useCallback(
     (id) =>
       `<script type="module" data-paywall data-backend-id="${process.env.CANISTER_ID_PAYWALL_BACKEND}" src="https://${process.env.CANISTER_ID_PAYWALL_FRONTEND}.icp0.io/paywall.js?paywallId=${id}&v=${Date.now()}"></script>`,
@@ -378,11 +393,6 @@ function App() {
     (id, config) => {
       const scriptTag = buildEmbedScript(id);
       const targetOrigin = getTargetOrigin(config.target_url);
-      const priceIcpValue = (Number(config.price_e8s) / 100_000_000).toFixed(4);
-      const paymentPrompt =
-        config.payment_prompt_text?.[0] || 'Pay to gain access to the app.';
-      const loginPrompt =
-        config.login_prompt_text?.[0] || 'Log in to continue.';
 
       return `Integrate the IC paywall into this app in one pass.\n\n` +
         `Target URL (production deploy): ${config.target_url}\n` +
@@ -390,27 +400,17 @@ function App() {
         `Embed script (place in the <head> and load after critical content):\n` +
         `${scriptTag}\n\n` +
         `Integration requirements:\n` +
-        `- Add the script tag exactly as shown in the <head> of your HTML. Ensure it loads after critical content (defer/async if needed, test for compatibility). Do not cause page reloads after payment.\n` +
+        `- Add the script tag exactly as shown in the <head> of index.html. Ensure it loads after critical content (defer/async if needed, test for compatibility). Do not cause page reloads after payment.\n` +
         `- Ensure the live domain is ${config.target_url} (not a draft/preview URL) so the paywall does not disable itself due to origin mismatch.\n` +
         `- If your app has a backend, configure CORS to allow ${targetOrigin} (or '*' for quick testing). Example headers: Access-Control-Allow-Origin: ${targetOrigin}; Access-Control-Allow-Methods: GET, POST, OPTIONS; Access-Control-Allow-Headers: Content-Type, Authorization.\n` +
+        `- Install only the necessary things mentioned above; nothing else.\n` +
         `- Do not block existing layout, ads, or app scripts; the paywall script handles the overlay and checks without destructive changes.\n` +
         `- Handle post-payment gracefully: Avoid reloading the page immediately after payment. The script uses a 60-second grace period (via localStorage) to prevent re-blocking during propagation delays or minor re-renders.\n` +
         `- After integration, verify access checks run before showing protected UI:\n` +
-        `  - Frontend: call window.paywallHandshake((hasAccess) => { if (!hasAccess) { /* hide UI or redirect */ } }) before rendering protected content. Re-check every 30 seconds to enforce session expiry. If using React/Vue, call in useEffect or mounted hook.\n` +
+        `  - Frontend: call window.paywallHandshake((hasAccess) => { if (!hasAccess) { /* hide UI or redirect */ } }) before rendering protected content, but do NOT call this handshake on the initial page load. Re-check every 30 seconds to enforce session expiry. If using React/Vue, call in useEffect or mounted hook for protected components only.\n` +
         `  - Backend (Motoko): check access before returning sensitive data, e.g. if (not (await Paywall.hasAccess(caller, "${id}"))) { Debug.trap("Access denied"); }.\n` +
         `  - Test flow: unauthenticated users see paywall → pay/login → app loads without reload → session expiry re-blocks.\n` +
-        `- Strengthen enforcement: periodically re-check access, and keep sensitive logic in canisters guarded by hasAccess.\n\n` +
-        `Paywall details:\n` +
-        `- Paywall ID: ${id}\n` +
-        `- Price: ${priceIcpValue} ICP\n` +
-        `- Login prompt: "${loginPrompt}"\n` +
-        `- Payment prompt: "${paymentPrompt}"\n\n` +
-        `Troubleshooting:\n` +
-        `- Paywall reappears after payment: Ensure no page reloads post-payment. The grace period handles brief delays—test with localStorage cleared.\n` +
-        `- "Disallowed origin" error: update CORS to allow ${targetOrigin} and redeploy.\n` +
-        `- "Paywall disabled: running on draft origin": ensure the page URL matches ${config.target_url} exactly.\n` +
-        `- Script not loading: verify ${scriptTag} is reachable and no CSP blocks it.\n` +
-        `- Access not enforcing: confirm paywallHandshake runs before UI and backend endpoints call hasAccess.`;
+        `- Strengthen enforcement: periodically re-check access, and keep sensitive logic in canisters guarded by hasAccess.`;
     },
     [buildEmbedScript],
   );
@@ -976,6 +976,9 @@ function App() {
                   const config = paywallConfigs[id];
                   if (!config) return null;
                   const isExpanded = expandedPaywalls.has(id);
+                  const openSections = expandedSections.get(id) || new Set();
+                  const isDetailsOpen = openSections.has('details');
+                  const isTroubleshootingOpen = openSections.has('troubleshooting');
                   const price = Number(config.price_e8s) / 100_000_000;
                   const durationSeconds =
                     Number(config.session_duration_ns) / 1_000_000_000;
@@ -1007,9 +1010,6 @@ function App() {
                       {isExpanded && (
                         <div className="paywall-details">
                           <p>
-                            <strong>ID:</strong> {id}
-                          </p>
-                          <p>
                             <strong>Price:</strong> {price.toFixed(4)} ICP
                           </p>
                           <p>
@@ -1028,14 +1028,6 @@ function App() {
                           <p>
                             <strong>Session Duration:</strong> {days}d {hours}h{' '}
                             {minutes}m {seconds}s
-                          </p>
-                          <p>
-                            <strong>Login Prompt:</strong>{' '}
-                            {config.login_prompt_text?.[0] || 'None set'}
-                          </p>
-                          <p>
-                            <strong>Payment Prompt:</strong>{' '}
-                            {config.payment_prompt_text?.[0] || 'None set'}
                           </p>
                           <p>
                             <strong>Usage Count:</strong>{' '}
@@ -1059,6 +1051,59 @@ function App() {
                           <p className="hint">
                             Place <span className="mono">script</span> in the head of the html file. Adjust cors headers if necessary.
                           </p>
+                          <button
+                            type="button"
+                            className="button-secondary"
+                            onClick={() => toggleSection(id, 'details')}
+                          >
+                            {isDetailsOpen ? 'Hide' : 'Show'} paywall details
+                          </button>
+                          {isDetailsOpen && (
+                            <div className="expandable-section stack hint">
+                              <p>
+                                <strong>Paywall ID:</strong> {id}
+                              </p>
+                              <p>
+                                <strong>Login Prompt:</strong>{' '}
+                                {config.login_prompt_text?.[0] || 'None set'}
+                              </p>
+                              <p>
+                                <strong>Payment Prompt:</strong>{' '}
+                                {config.payment_prompt_text?.[0] || 'None set'}
+                              </p>
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            className="button-secondary"
+                            onClick={() => toggleSection(id, 'troubleshooting')}
+                          >
+                            {isTroubleshootingOpen ? 'Hide' : 'Show'} troubleshooting
+                          </button>
+                          {isTroubleshootingOpen && (
+                            <div className="expandable-section stack hint">
+                              <ul className="list">
+                                <li>
+                                  Paywall reappears after payment: Ensure no page reloads post-payment. The grace period handles brief delays—test with localStorage cleared.
+                                </li>
+                                <li>
+                                  "Disallowed origin" error: update CORS to allow {getTargetOrigin(config.target_url)} and redeploy.
+                                </li>
+                                <li>
+                                  "Paywall disabled: running on draft origin": ensure the page URL matches {config.target_url} exactly.
+                                </li>
+                                <li>
+                                  Script not loading: verify the embed script is reachable and no CSP blocks it.
+                                </li>
+                                <li>
+                                  Access not enforcing: confirm paywallHandshake runs before protected UI and backend endpoints call hasAccess.
+                                </li>
+                                <li>
+                                  If access problems continue immediately after payment, ask your vibe coding app to remove all paywall-related code and re-run the prompt to reinstall.
+                                </li>
+                              </ul>
+                            </div>
+                          )}
                           <p>
                             <strong>Vibe Coding Prompt:</strong>
                           </p>
@@ -1072,6 +1117,12 @@ function App() {
                             type="button"
                             className="button-secondary"
                             onClick={async () => {
+                              const confirmed = window.confirm(
+                                'Vibe coding apps may suggest adding extra paywall features. If prompted, say no and tell the app to start the build.\n\nWarning: vibe coding apps can make unexpected or unintended project changes.\n\nCopy this prompt anyway?',
+                              );
+                              if (!confirmed) {
+                                return;
+                              }
                               const prompt = generateVibePrompt(id, config);
                               const result = await copyPromptToClipboard(prompt);
                               if (result.ok) {

@@ -740,19 +740,6 @@ persistent actor Paywall {
     paywallConfigs.get(id);
   };
 
-  public shared(msg) func getPaymentAccount(paywallId : Text) : async ?Account {
-    switch (paywallConfigs.get(paywallId)) {
-      case null null;
-      case (?_) {
-        let subaccount = await deriveSubaccount(paywallId, msg.caller);
-        ?{
-          owner = Principal.fromActor(Paywall);
-          subaccount = ?subaccount;
-        };
-      };
-    };
-  };
-
   public shared(msg) func getUserAccount() : async Account {
     let subaccount = await deriveUserSubaccount(msg.caller);
     {
@@ -763,45 +750,6 @@ persistent actor Paywall {
 
   public shared(msg) func withdrawFromWallet(amount : Nat, to : WithdrawTo) : async WithdrawResult {
     let subaccount = await deriveUserSubaccount(msg.caller);
-    switch (to) {
-      case (#Account account) {
-        let result = await ledger.icrc1_transfer({
-          to = account;
-          amount;
-          from_subaccount = ?subaccount;
-          fee = ?icpTransferFee;
-          memo = null;
-          created_at_time = ?createdAtNow();
-        });
-        switch (result) {
-          case (#Ok(blockIndex)) #Ok(blockIndex);
-          case (#Err(err)) #Err(debug_show(err));
-        };
-      };
-      case (#LegacyAccountId accountId) {
-        let result = await ledger.transfer({
-          to = accountId;
-          amount = { e8s = Nat64.fromNat(amount) };
-          fee = { e8s = Nat64.fromNat(icpTransferFee) };
-          memo = 0;
-          from_subaccount = ?subaccount;
-          created_at_time = ?createdAtNow();
-        });
-        switch (result) {
-          case (#Ok(blockIndex)) #Ok(Nat64.toNat(blockIndex));
-          case (#Err(err)) #Err(debug_show(err));
-        };
-      };
-    };
-  };
-
-  public shared(msg) func withdrawFromPaywallAccount(
-    paywallId : Text,
-    amount : Nat,
-    to : WithdrawTo,
-  ) : async WithdrawResult {
-    let ?_ = paywallConfigs.get(paywallId) else return #Err("Invalid paywall ID");
-    let subaccount = await deriveSubaccount(paywallId, msg.caller);
     switch (to) {
       case (#Account account) {
         let result = await ledger.icrc1_transfer({
@@ -870,44 +818,6 @@ persistent actor Paywall {
     };
 
     await settleFromEscrow(caller, paywallId, config, escrowSubaccount, userSubaccount);
-  };
-
-  public shared(msg) func verifyPayment(paywallId : Text) : async PaymentResult {
-    let caller = msg.caller;
-    let ?config = paywallConfigs.get(paywallId) else return #Err("Invalid paywall ID");
-    let paywallSubaccount = await deriveSubaccount(paywallId, caller);
-    let escrowSubaccount = await deriveEscrowSubaccount(paywallId, caller);
-
-    let outgoingTransfers : Nat = config.destinations.size() + 1;
-    let escrowRequired : Nat = config.price_e8s + (icpTransferFee * outgoingTransfers);
-    let totalRequiredInPaywallAccount : Nat = escrowRequired + icpTransferFee;
-
-    let escrowBalance = await balanceOfSubaccount(escrowSubaccount);
-    if (escrowBalance < escrowRequired) {
-      let paywallBalance = await balanceOfSubaccount(paywallSubaccount);
-      if (paywallBalance < totalRequiredInPaywallAccount) {
-        return #Err(
-          "Insufficient balance: have " # Nat.toText(paywallBalance) # ", need " #
-          Nat.toText(totalRequiredInPaywallAccount),
-        );
-      };
-
-      let fundResult = await ledger.icrc1_transfer({
-        to = { owner = Principal.fromActor(Paywall); subaccount = ?escrowSubaccount };
-        amount = escrowRequired;
-        from_subaccount = ?paywallSubaccount;
-        fee = ?icpTransferFee;
-        memo = null;
-        created_at_time = ?createdAtNow();
-      });
-
-      switch (fundResult) {
-        case (#Err(err)) { return #Err("Escrow funding transfer failed: " # debug_show(err)) };
-        case (#Ok(_)) {};
-      };
-    };
-
-    await settleFromEscrow(caller, paywallId, config, escrowSubaccount, paywallSubaccount);
   };
 
   public shared(msg) func settleEscrow(paywallId : Text) : async PaymentResult {

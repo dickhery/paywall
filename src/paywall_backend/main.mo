@@ -176,11 +176,11 @@ persistent actor Paywall {
     #Err : Text;
   };
 
-  stable var paywallConfigEntries : [(Text, PaywallConfigStable)] = [];
-  stable var paidStatusEntries : [(Principal, [(Text, Int)])] = [];
-  stable var ownedPaywallsEntries : [(Principal, [Text])] = [];
-  stable var nextPaywallId : Nat = 0;
-  stable var salt : [Nat8] = [];
+  var paywallConfigEntries : [(Text, PaywallConfigStable)] = [];
+  var paidStatusEntries : [(Principal, [(Text, Int)])] = [];
+  var ownedPaywallsEntries : [(Principal, [Text])] = [];
+  var nextPaywallId : Nat = 0;
+  var salt : [Nat8] = [];
 
   transient let ledger : Ledger = actor ("ryjl3-tyaaa-aaaaa-aaaba-cai");
   transient let cmc : CyclesMintingCanister = actor ("rkp4c-7iaaa-aaaaa-aaaca-cai");
@@ -601,7 +601,16 @@ persistent actor Paywall {
       case (#Ok) {};
     };
 
-    let userAmount = config.price_e8s - fee_e8s;
+    if (config.destinations.size() == 0) {
+      return #Err("No payment destinations configured for this paywall.");
+    };
+
+    let userAmount : Nat = if (config.price_e8s > fee_e8s) {
+      config.price_e8s - fee_e8s;
+    } else {
+      0;
+    };
+
     var remaining = userAmount;
     let lastIndex = config.destinations.size() - 1;
     var index : Nat = 0;
@@ -611,7 +620,7 @@ persistent actor Paywall {
       } else {
         (userAmount * destination.percentage) / 100;
       };
-      if (index != lastIndex) {
+      if (index != lastIndex and remaining >= amount) {
         remaining -= amount;
       };
 
@@ -847,7 +856,11 @@ persistent actor Paywall {
       return #Err("No refundable escrow balance available.");
     };
 
-    let amount = balance - icpTransferFee;
+    let amount : Nat = if (balance > icpTransferFee) {
+      balance - icpTransferFee;
+    } else {
+      0;
+    };
     let result = await ledger.icrc1_transfer({
       to = { owner = Principal.fromActor(Paywall); subaccount = ?userSubaccount };
       amount;

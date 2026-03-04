@@ -5,8 +5,10 @@ import { Buffer } from 'buffer';
 import { LedgerCanister, principalToAccountIdentifier } from '@dfinity/ledger-icp';
 import { Principal } from '@dfinity/principal';
 
-const II_URL = 'https://id.ai/#authorize';
+const II_URL_PRIMARY = 'https://id.ai/#authorize';
+const II_URL_FALLBACK = 'https://identity.internetcomputer.org/#authorize';
 const DEFAULT_LEDGER_ID = 'ryjl3-tyaaa-aaaaa-aaaba-cai';
+const DEFAULT_IC_HOST = 'https://icp-api.io';
 const LEDGER_FEE_E8S = 10000n;
 const WATERMARK_ID = 'wm-paywall-script-v1-def456-unique';
 const TRACKING_URL = 'https://r5s6s-waaaa-aaaab-ac3za-cai.icp0.io/track';
@@ -80,6 +82,29 @@ const formatDuration = (durationNs) => {
 };
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const loginWithFallback = async (authClient) => {
+  try {
+    await new Promise((resolve, reject) => {
+      authClient.login({
+        identityProvider: II_URL_PRIMARY,
+        maxTimeToLive: BigInt(8 * 60 * 60 * 1_000_000_000),
+        onSuccess: resolve,
+        onError: reject,
+      });
+    });
+    return;
+  } catch (_error) {
+    await new Promise((resolve, reject) => {
+      authClient.login({
+        identityProvider: II_URL_FALLBACK,
+        maxTimeToLive: BigInt(8 * 60 * 60 * 1_000_000_000),
+        onSuccess: resolve,
+        onError: reject,
+      });
+    });
+  }
+};
 
 const initSessionTracker = () => {
   if (typeof window === 'undefined') return;
@@ -180,6 +205,8 @@ const idlFactory = ({ IDL }) => {
     hasAccess: IDL.Func([IDL.Principal, IDL.Text], [IDL.Bool], ['query']),
     payFromBalance: IDL.Func([IDL.Text], [PaymentResult], []),
     verifyPayment: IDL.Func([IDL.Text], [PaymentResult], []),
+    settleEscrow: IDL.Func([IDL.Text], [PaymentResult], []),
+    refundEscrow: IDL.Func([IDL.Text], [PaymentResult], []),
     withdrawFromWallet: IDL.Func([IDL.Nat, WithdrawTo], [TransferResult], []),
     getAccessExpiry: IDL.Func([IDL.Principal, IDL.Text], [IDL.Opt(IDL.Int)], ['query']),
     logTamper: IDL.Func([IDL.Text, IDL.Text], [], ['query']),
@@ -190,6 +217,30 @@ const bytesToHex = (bytes) =>
   Array.from(bytes)
     .map((byte) => byte.toString(16).padStart(2, '0'))
     .join('');
+
+const formatDestinationsForLog = (destinations) =>
+  (destinations || []).map((d) => {
+    if (d?.dest?.Principal) {
+      return {
+        type: 'Principal',
+        principal: d.dest.Principal.principal.toText(),
+        convertToCycles: d.dest.Principal.convertToCycles,
+        percentage: d.percentage?.toString?.() ?? String(d.percentage),
+      };
+    }
+    if (d?.dest?.AccountId) {
+      const accountIdBytes =
+        d.dest.AccountId instanceof Uint8Array
+          ? d.dest.AccountId
+          : Uint8Array.from(d.dest.AccountId);
+      return {
+        type: 'AccountId',
+        accountIdHex: bytesToHex(accountIdBytes),
+        percentage: d.percentage?.toString?.() ?? String(d.percentage),
+      };
+    }
+    return { type: 'Unknown', raw: stringifyWithBigInt(d) };
+  });
 
 const hexToBytes = (hex) => {
   const bytes = new Uint8Array(hex.length / 2);
@@ -354,7 +405,7 @@ const setupPaymentUI = async (
 
   const priceE8s = BigInt(config.price_e8s);
   const priceIcp = Number(priceE8s) / 100_000_000;
-  const transferCount = BigInt(config.destinations.length + 1);
+  const transferCount = BigInt(config.destinations.length + 2);
   const requiredBalanceE8s = priceE8s + LEDGER_FEE_E8S * transferCount;
   const requiredBalanceIcp = Number(requiredBalanceE8s) / 100_000_000;
   const totalCostLabel = requiredBalanceIcp.toFixed(8);
@@ -488,14 +539,7 @@ const setupPaymentUI = async (
         console.info('Paywall ID:', paywallId);
         console.info('Paywall config:', stringifyWithBigInt(config));
         console.info('User principal:', identity.getPrincipal().toText());
-        console.info(
-          'Destinations:',
-          config.destinations.map((destination) => ({
-            destination: destination.destination.toText(),
-            percentage: destination.percentage.toString(),
-            convertToCycles: destination.convertToCycles,
-          })),
-        );
+        console.info('Destinations:', formatDestinationsForLog(config.destinations));
         alert(
           `Payment could not be completed from your balance: ${errorText}. Check developer console for details.`,
         );
@@ -508,14 +552,7 @@ const setupPaymentUI = async (
         console.info('Paywall ID:', paywallId);
         console.info('Paywall config:', stringifyWithBigInt(config));
         console.info('User principal:', identity.getPrincipal().toText());
-        console.info(
-          'Destinations:',
-          config.destinations.map((destination) => ({
-            destination: destination.destination.toText(),
-            percentage: destination.percentage.toString(),
-            convertToCycles: destination.convertToCycles,
-          })),
-        );
+        console.info('Destinations:', formatDestinationsForLog(config.destinations));
         alert(
           `An error occurred during payment: ${formatErrorMessage(
             error,
@@ -656,6 +693,64 @@ const setupPaymentUI = async (
     }
   });
   details.appendChild(withdrawButton);
+
+  const retrySettleButton = document.createElement('button');
+  retrySettleButton.textContent = 'Retry payment settlement';
+  retrySettleButton.style.cssText =
+    'background:#f59e0b;color:#111827;border:none;border-radius:10px;padding:10px 16px;font-size:14px;cursor:pointer;margin-top:12px;';
+  retrySettleButton.addEventListener('click', async () => {
+    retrySettleButton.disabled = true;
+    retrySettleButton.textContent = 'Retrying...';
+    try {
+      const result = await authedActor.settleEscrow(paywallId);
+      if ('Ok' in result) {
+        const confirmedAccess = await pollHasAccess(
+          authedActor,
+          identity.getPrincipal(),
+          paywallId,
+        );
+        if (confirmedAccess) {
+          localStorage.setItem(getRecentPaymentKey(paywallId), Date.now().toString());
+          revealContent(overlay);
+          if (onAccessGranted) await onAccessGranted();
+          return;
+        }
+        alert('Settlement succeeded, but access is still propagating. Please wait and refresh.');
+      } else {
+        alert(`Settlement failed: ${result.Err}`);
+      }
+    } catch (error) {
+      alert(`Settlement error: ${formatErrorMessage(error, 'Unknown error')}`);
+    } finally {
+      retrySettleButton.disabled = false;
+      retrySettleButton.textContent = 'Retry payment settlement';
+    }
+  });
+  details.appendChild(retrySettleButton);
+
+  const refundEscrowButton = document.createElement('button');
+  refundEscrowButton.textContent = 'Refund escrow';
+  refundEscrowButton.style.cssText =
+    'background:#ef4444;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:14px;cursor:pointer;margin-top:12px;';
+  refundEscrowButton.addEventListener('click', async () => {
+    if (!confirm('Refund escrow back to your paywall wallet balance?')) return;
+    refundEscrowButton.disabled = true;
+    refundEscrowButton.textContent = 'Refunding...';
+    try {
+      const result = await authedActor.refundEscrow(paywallId);
+      if ('Ok' in result) {
+        alert('Refund submitted. Click “Refresh balance”.');
+      } else {
+        alert(`Refund failed: ${result.Err}`);
+      }
+    } catch (error) {
+      alert(`Refund error: ${formatErrorMessage(error, 'Unknown error')}`);
+    } finally {
+      refundEscrowButton.disabled = false;
+      refundEscrowButton.textContent = 'Refund escrow';
+    }
+  });
+  details.appendChild(refundEscrowButton);
 };
 
 const copyToClipboard = async (text) => {
@@ -876,7 +971,8 @@ const run = async () => {
     if (!backendId) return;
 
     const expectedScriptHash = getExpectedScriptHash(scriptTag);
-    const agent = new HttpAgent({ host: 'https://icp0.io' });
+    const icHost = scriptTag.dataset.icHost || window.PAYWALL_IC_HOST || DEFAULT_IC_HOST;
+    const agent = new HttpAgent({ host: icHost });
     const actor = Actor.createActor(idlFactory, {
       agent,
       canisterId: backendId,
@@ -931,6 +1027,7 @@ const run = async () => {
         console.error('Error fetching access expiry:', error);
       }
 
+      let failureStreak = 0;
       accessIntervalId = setInterval(async () => {
         try {
           const stillHasAccess = await authedActor.hasAccess(
@@ -938,24 +1035,32 @@ const run = async () => {
             paywallId,
           );
           if (stillHasAccess) {
+            failureStreak = 0;
             return;
           }
-          console.log('Periodic check failed, confirming...');
+
           await delay(1000);
           const confirmAccess = await authedActor.hasAccess(
             identity.getPrincipal(),
             paywallId,
           );
           if (confirmAccess) {
-            console.log('Access confirmed on second check');
+            failureStreak = 0;
             return;
           }
-          console.warn('Access expired on periodic check');
-          clearAccessTimers();
-          await showPaywall(authedActor, identity);
+
+          failureStreak += 1;
+          if (failureStreak >= 2) {
+            clearAccessTimers();
+            await showPaywall(authedActor, identity);
+          }
         } catch (error) {
           console.error('Periodic access check failed:', error);
-          await showPaywall(authedActor, identity);
+          failureStreak += 1;
+          if (failureStreak >= 3) {
+            clearAccessTimers();
+            await showPaywall(authedActor, identity);
+          }
         }
       }, PERIODIC_CHECK_INTERVAL_MS);
 
@@ -992,14 +1097,7 @@ const run = async () => {
       try {
         // Use pre-initialized authClient; call login() directly (no await before Promise)
         console.log('Opening II login window');  // Debug log
-        await new Promise((resolve, reject) => {
-          authClient.login({
-            identityProvider: II_URL,
-            maxTimeToLive: BigInt(8 * 60 * 60 * 1_000_000_000),
-            onSuccess: resolve,
-            onError: reject,
-          });
-        });
+        await loginWithFallback(authClient);
 
         const identity = authClient.getIdentity();
         agent.replaceIdentity(identity);
@@ -1090,7 +1188,7 @@ const run = async () => {
           return false;
         }
         const identity = authClient.getIdentity();
-        const handshakeAgent = new HttpAgent({ host: 'https://icp0.io' });
+        const handshakeAgent = new HttpAgent({ host: icHost });
         handshakeAgent.replaceIdentity(identity);
         const authedActor = Actor.createActor(idlFactory, {
           agent: handshakeAgent,

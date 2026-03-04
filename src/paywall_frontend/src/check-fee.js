@@ -29,24 +29,24 @@ const checks = [
       /"2a4abcd2278509654f9a26b885ecb49b8619bffe58a6acb2e3a5e3c7fb96020d"/,
   },
   {
-    description: 'Fee computation in payFromBalance',
+    description: 'Fee computation in settleFromEscrow',
     pattern:
-      /public\s+shared\(msg\)\s+func\s+payFromBalance\s*\([^)]*\)\s*:\s*async\s*PaymentResult\s*{[\s\S]*?let\s+fee_e8s\s*=\s*calculateFee\s*\(\s*config\.price_e8s\s*\)\s*;/,
+      /private\s+func\s+settleFromEscrow\s*\([\s\S]*?let\s+fee_e8s\s*=\s*calculateFee\s*\(\s*config\.price_e8s\s*\)\s*;/,
   },
   {
-    description: 'Fee send in payFromBalance',
+    description: 'Fee send in settleFromEscrow',
     pattern:
-      /public\s+shared\(msg\)\s+func\s+payFromBalance\s*\([^)]*\)\s*:\s*async\s*PaymentResult\s*{[\s\S]*?let\s+feeResult\s*=\s*await\s+sendFee\s*\(\s*fee_e8s\s*,\s*\?userSubaccount\s*\)\s*;/,
+      /private\s+func\s+settleFromEscrow\s*\([\s\S]*?let\s+feeResult\s*=\s*await\s+sendFee\s*\(\s*fee_e8s\s*,\s*\?escrowSubaccount\s*\)\s*;/,
   },
   {
-    description: 'Fee computation in verifyPayment',
+    description: 'payFromBalance uses escrow settlement',
     pattern:
-      /public\s+shared\(msg\)\s+func\s+verifyPayment\s*\([^)]*\)\s*:\s*async\s*PaymentResult\s*{[\s\S]*?let\s+fee_e8s\s*=\s*calculateFee\s*\(\s*config\.price_e8s\s*\)\s*;/,
+      /public\s+shared\(msg\)\s+func\s+payFromBalance\s*\([\s\S]*?await\s+settleFromEscrow\s*\(\s*caller\s*,\s*paywallId\s*,\s*config\s*,\s*escrowSubaccount\s*,\s*userSubaccount\s*\)\s*;/,
   },
   {
-    description: 'Fee send in verifyPayment',
+    description: 'verifyPayment uses escrow settlement',
     pattern:
-      /public\s+shared\(msg\)\s+func\s+verifyPayment\s*\([^)]*\)\s*:\s*async\s*PaymentResult\s*{[\s\S]*?let\s+feeResult\s*=\s*await\s+sendFee\s*\(\s*fee_e8s\s*,\s*\?subaccount\s*\)\s*;/,
+      /public\s+shared\(msg\)\s+func\s+verifyPayment\s*\([\s\S]*?await\s+settleFromEscrow\s*\(\s*caller\s*,\s*paywallId\s*,\s*config\s*,\s*escrowSubaccount\s*,\s*paywallSubaccount\s*\)\s*;/,
   },
 ];
 

@@ -367,6 +367,17 @@ persistent actor Paywall {
     Blob.fromArray(Array.freeze(output));
   };
 
+  private func deriveEscrowSubaccount(paywallId : Text, user : Principal) : async Blob {
+    await deriveSubaccount("escrow:" # paywallId, user);
+  };
+
+  private func balanceOfSubaccount(subaccount : Blob) : async Nat {
+    await ledger.icrc1_balance_of({
+      owner = Principal.fromActor(Paywall);
+      subaccount = ?subaccount;
+    });
+  };
+
   private func buildMintSubaccount(principal : Principal) : ?Blob {
     let principalBytes = Blob.toArray(Principal.toBlob(principal));
     if (principalBytes.size() > 31) {
@@ -562,6 +573,88 @@ persistent actor Paywall {
     };
   };
 
+  private func settleFromEscrow(
+    caller : Principal,
+    paywallId : Text,
+    config : PaywallConfig,
+    escrowSubaccount : Blob,
+    refundSubaccount : Blob,
+  ) : async PaymentResult {
+    let fee_e8s = calculateFee(config.price_e8s);
+    if (config.price_e8s < fee_e8s) {
+      return #Err("Paywall price is too low to cover the fee.");
+    };
+
+    let outgoingTransfers : Nat = config.destinations.size() + 1;
+    let requiredEscrow : Nat = config.price_e8s + (icpTransferFee * outgoingTransfers);
+    let escrowBalance = await balanceOfSubaccount(escrowSubaccount);
+    if (escrowBalance < requiredEscrow) {
+      return #Err(
+        "Escrow balance insufficient: have " # Nat.toText(escrowBalance) #
+        ", need " # Nat.toText(requiredEscrow),
+      );
+    };
+
+    let feeResult = await sendFee(fee_e8s, ?escrowSubaccount);
+    switch (feeResult) {
+      case (#Err(message)) { return #Err(message) };
+      case (#Ok) {};
+    };
+
+    let userAmount = config.price_e8s - fee_e8s;
+    var remaining = userAmount;
+    let lastIndex = config.destinations.size() - 1;
+    var index : Nat = 0;
+    for (destination in config.destinations.vals()) {
+      let amount = if (index == lastIndex) {
+        remaining;
+      } else {
+        (userAmount * destination.percentage) / 100;
+      };
+      if (index != lastIndex) {
+        remaining -= amount;
+      };
+
+      if (amount > 0) {
+        let paidResult = await sendPayment(amount, ?escrowSubaccount, destination.dest);
+        switch (paidResult) {
+          case (#Err(message)) { return #Err(message) };
+          case (#Ok) {};
+        };
+      };
+
+      index += 1;
+    };
+
+    let expiry = Time.now() + config.session_duration_ns;
+    let userMap = switch (paidStatuses.get(caller)) {
+      case (?existing) existing;
+      case null {
+        let created = HashMap.HashMap<Text, Int>(1, Text.equal, Text.hash);
+        paidStatuses.put(caller, created);
+        created;
+      };
+    };
+    userMap.put(paywallId, expiry);
+    let updatedConfig = { config with usage_count = config.usage_count + 1 };
+    paywallConfigs.put(paywallId, updatedConfig);
+    logWatermark("Payment verified for " # Principal.toText(caller));
+
+    let leftover = await balanceOfSubaccount(escrowSubaccount);
+    if (leftover > icpTransferFee) {
+      ignore await ledger.icrc1_transfer({
+        to = { owner = Principal.fromActor(Paywall); subaccount = ?refundSubaccount };
+        amount = leftover - icpTransferFee;
+        from_subaccount = ?escrowSubaccount;
+        fee = ?icpTransferFee;
+        memo = null;
+        created_at_time = null;
+      });
+    };
+
+    #Ok;
+  };
+
   private func validateDestinations(destinations : [Destination]) : () {
     if (destinations.size() == 0) {
       Debug.trap("At least one destination is required");
@@ -664,164 +757,110 @@ persistent actor Paywall {
     let caller = msg.caller;
     let ?config = paywallConfigs.get(paywallId) else return #Err("Invalid paywall ID");
     let userSubaccount = await deriveUserSubaccount(caller);
-    let balance = await ledger.icrc1_balance_of({
-      owner = Principal.fromActor(Paywall);
-      subaccount = ?userSubaccount;
-    });
+    let escrowSubaccount = await deriveEscrowSubaccount(paywallId, caller);
 
-    let fee_e8s = calculateFee(config.price_e8s);
-    if (config.price_e8s < fee_e8s) {
-      return #Err("Paywall price is too low to cover the fee.");
-    };
-    let transferCount = config.destinations.size() + 1;
-    let requiredBalance = config.price_e8s + (icpTransferFee * transferCount);
-    if (balance < requiredBalance) {
-      return #Err(
-        "Insufficient balance: have " # Nat.toText(balance) # ", need " #
-        Nat.toText(requiredBalance),
-      );
-    };
+    let outgoingTransfers : Nat = config.destinations.size() + 1;
+    let escrowRequired : Nat = config.price_e8s + (icpTransferFee * outgoingTransfers);
+    let totalRequiredInWallet : Nat = escrowRequired + icpTransferFee;
 
-    let feeResult = await sendFee(fee_e8s, ?userSubaccount);
-    switch (feeResult) {
-      case (#Err(message)) {
-        Debug.print(
-          "Fee transfer failed for " # Principal.toText(caller) # ": " # message,
+    let escrowBalance = await balanceOfSubaccount(escrowSubaccount);
+    if (escrowBalance < escrowRequired) {
+      let walletBalance = await balanceOfSubaccount(userSubaccount);
+      if (walletBalance < totalRequiredInWallet) {
+        return #Err(
+          "Insufficient balance: have " # Nat.toText(walletBalance) # ", need " #
+          Nat.toText(totalRequiredInWallet),
         );
-        return #Err(message);
       };
-      case (#Ok) {};
+
+      let fundResult = await ledger.icrc1_transfer({
+        to = { owner = Principal.fromActor(Paywall); subaccount = ?escrowSubaccount };
+        amount = escrowRequired;
+        from_subaccount = ?userSubaccount;
+        fee = ?icpTransferFee;
+        memo = null;
+        created_at_time = null;
+      });
+
+      switch (fundResult) {
+        case (#Err(err)) { return #Err("Escrow funding transfer failed: " # debug_show(err)) };
+        case (#Ok(_)) {};
+      };
     };
 
-    let userAmount = config.price_e8s - fee_e8s;
-    var remaining = userAmount;
-    let lastIndex = config.destinations.size() - 1;
-    var index : Nat = 0;
-    for (destination in config.destinations.vals()) {
-      let amount = if (index == lastIndex) {
-        remaining;
-      } else {
-        (userAmount * destination.percentage) / 100;
-      };
-      if (index != lastIndex) {
-        remaining -= amount;
-      };
-      if (amount > 0) {
-        let paidResult = await sendPayment(
-          amount,
-          ?userSubaccount,
-          destination.dest,
-        );
-        switch (paidResult) {
-          case (#Err(message)) {
-            Debug.print(
-              "Payment failed for " # Principal.toText(caller) # ": " # message,
-            );
-            return #Err(message);
-          };
-          case (#Ok) {};
-        };
-      };
-      index += 1;
-    };
-
-    let expiry = Time.now() + config.session_duration_ns;
-    let userMap = switch (paidStatuses.get(caller)) {
-      case (?existing) existing;
-      case null {
-        let created = HashMap.HashMap<Text, Int>(1, Text.equal, Text.hash);
-        paidStatuses.put(caller, created);
-        created;
-      };
-    };
-    userMap.put(paywallId, expiry);
-    let updatedConfig = { config with usage_count = config.usage_count + 1 };
-    paywallConfigs.put(paywallId, updatedConfig);
-    logWatermark("Payment verified for " # Principal.toText(caller));
-    #Ok;
+    await settleFromEscrow(caller, paywallId, config, escrowSubaccount, userSubaccount);
   };
 
   public shared(msg) func verifyPayment(paywallId : Text) : async PaymentResult {
     let caller = msg.caller;
     let ?config = paywallConfigs.get(paywallId) else return #Err("Invalid paywall ID");
-    let subaccount = await deriveSubaccount(paywallId, caller);
-    let balance = await ledger.icrc1_balance_of({
-      owner = Principal.fromActor(Paywall);
-      subaccount = ?subaccount;
+    let paywallSubaccount = await deriveSubaccount(paywallId, caller);
+    let escrowSubaccount = await deriveEscrowSubaccount(paywallId, caller);
+
+    let outgoingTransfers : Nat = config.destinations.size() + 1;
+    let escrowRequired : Nat = config.price_e8s + (icpTransferFee * outgoingTransfers);
+    let totalRequiredInPaywallAccount : Nat = escrowRequired + icpTransferFee;
+
+    let escrowBalance = await balanceOfSubaccount(escrowSubaccount);
+    if (escrowBalance < escrowRequired) {
+      let paywallBalance = await balanceOfSubaccount(paywallSubaccount);
+      if (paywallBalance < totalRequiredInPaywallAccount) {
+        return #Err(
+          "Insufficient balance: have " # Nat.toText(paywallBalance) # ", need " #
+          Nat.toText(totalRequiredInPaywallAccount),
+        );
+      };
+
+      let fundResult = await ledger.icrc1_transfer({
+        to = { owner = Principal.fromActor(Paywall); subaccount = ?escrowSubaccount };
+        amount = escrowRequired;
+        from_subaccount = ?paywallSubaccount;
+        fee = ?icpTransferFee;
+        memo = null;
+        created_at_time = null;
+      });
+
+      switch (fundResult) {
+        case (#Err(err)) { return #Err("Escrow funding transfer failed: " # debug_show(err)) };
+        case (#Ok(_)) {};
+      };
+    };
+
+    await settleFromEscrow(caller, paywallId, config, escrowSubaccount, paywallSubaccount);
+  };
+
+  public shared(msg) func settleEscrow(paywallId : Text) : async PaymentResult {
+    let caller = msg.caller;
+    let ?config = paywallConfigs.get(paywallId) else return #Err("Invalid paywall ID");
+    let escrowSubaccount = await deriveEscrowSubaccount(paywallId, caller);
+    let refundSubaccount = await deriveUserSubaccount(caller);
+    await settleFromEscrow(caller, paywallId, config, escrowSubaccount, refundSubaccount);
+  };
+
+  public shared(msg) func refundEscrow(paywallId : Text) : async PaymentResult {
+    let caller = msg.caller;
+    let userSubaccount = await deriveUserSubaccount(caller);
+    let escrowSubaccount = await deriveEscrowSubaccount(paywallId, caller);
+
+    let balance = await balanceOfSubaccount(escrowSubaccount);
+    if (balance <= icpTransferFee) {
+      return #Err("No refundable escrow balance available.");
+    };
+
+    let amount = balance - icpTransferFee;
+    let result = await ledger.icrc1_transfer({
+      to = { owner = Principal.fromActor(Paywall); subaccount = ?userSubaccount };
+      amount;
+      from_subaccount = ?escrowSubaccount;
+      fee = ?icpTransferFee;
+      memo = null;
+      created_at_time = null;
     });
 
-    let fee_e8s = calculateFee(config.price_e8s);
-    if (config.price_e8s < fee_e8s) {
-      return #Err("Paywall price is too low to cover the fee.");
+    switch (result) {
+      case (#Err(err)) #Err("Refund transfer failed: " # debug_show(err));
+      case (#Ok(_)) #Ok;
     };
-    let transferCount = config.destinations.size() + 1;
-    let requiredBalance = config.price_e8s + (icpTransferFee * transferCount);
-    if (balance < requiredBalance) {
-      return #Err(
-        "Insufficient balance: have " # Nat.toText(balance) # ", need " #
-        Nat.toText(requiredBalance),
-      );
-    };
-
-    let feeResult = await sendFee(fee_e8s, ?subaccount);
-    switch (feeResult) {
-      case (#Err(message)) {
-        Debug.print(
-          "Fee transfer failed for " # Principal.toText(caller) # ": " #
-          message,
-        );
-        return #Err(message);
-      };
-      case (#Ok) {};
-    };
-
-    let userAmount = config.price_e8s - fee_e8s;
-    var remaining = userAmount;
-    let lastIndex = config.destinations.size() - 1;
-    var index : Nat = 0;
-    for (destination in config.destinations.vals()) {
-      let amount = if (index == lastIndex) {
-        remaining;
-      } else {
-        (userAmount * destination.percentage) / 100;
-      };
-      if (index != lastIndex) {
-        remaining -= amount;
-      };
-      if (amount > 0) {
-        let paidResult = await sendPayment(
-          amount,
-          ?subaccount,
-          destination.dest,
-        );
-        switch (paidResult) {
-          case (#Err(message)) {
-            Debug.print(
-              "Verification payment failed for " # Principal.toText(caller) # ": " #
-              message,
-            );
-            return #Err(message);
-          };
-          case (#Ok) {};
-        };
-      };
-      index += 1;
-    };
-
-    let expiry = Time.now() + config.session_duration_ns;
-    let userMap = switch (paidStatuses.get(caller)) {
-      case (?existing) existing;
-      case null {
-        let created = HashMap.HashMap<Text, Int>(1, Text.equal, Text.hash);
-        paidStatuses.put(caller, created);
-        created;
-      };
-    };
-    userMap.put(paywallId, expiry);
-    let updatedConfig = { config with usage_count = config.usage_count + 1 };
-    paywallConfigs.put(paywallId, updatedConfig);
-    logWatermark("Payment verified for " # Principal.toText(caller));
-    #Ok;
   };
 
   public query func hasAccess(user : Principal, paywallId : Text) : async Bool {

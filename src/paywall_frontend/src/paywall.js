@@ -539,10 +539,13 @@ const setupPaymentUI = async (
   details.appendChild(buttonRow);
 
   const setButtonState = (button, canPay, readyLabel, needLabel) => {
-    button.disabled = !canPay;
+    button.disabled = false;
     button.textContent = canPay ? readyLabel : needLabel;
-    button.style.opacity = canPay ? '1' : '0.7';
-    button.style.cursor = canPay ? 'pointer' : 'not-allowed';
+    button.style.opacity = canPay ? '1' : '0.9';
+    button.style.cursor = 'pointer';
+    button.title = canPay
+      ? 'Ready to submit payment settlement.'
+      : 'You can still click this button; the backend will return the exact required amount if balance is insufficient.';
   };
 
   const payFromBalanceButton = document.createElement('button');
@@ -577,7 +580,7 @@ const setupPaymentUI = async (
         }
         alert('Payment succeeded, but access is still propagating. Wait a moment and refresh.');
       } else {
-        alert(`Payment failed: ${result.Err || 'Unknown error'}`);
+        alert(`Payment failed: ${result.Err || 'Unknown error'}. If you just deposited, click Refresh balances and try again.`);
       }
     } catch (error) {
       alert(`Payment error: ${formatErrorMessage(error, 'Unknown error')}`);
@@ -620,7 +623,7 @@ const setupPaymentUI = async (
         }
         alert('Verification succeeded, but access is still propagating. Wait a moment and refresh.');
       } else {
-        alert(`Verification failed: ${result.Err || 'Unknown error'}`);
+        alert(`Verification failed: ${result.Err || 'Unknown error'}. If you just deposited, click Refresh balances and try again.`);
       }
     } catch (error) {
       alert(`Verification error: ${formatErrorMessage(error, 'Unknown error')}`);
@@ -637,7 +640,7 @@ const setupPaymentUI = async (
   const helper = document.createElement('p');
   helper.style.cssText = 'margin:6px 0 12px;color:#9ca3af;font-size:13px;';
   helper.textContent =
-    'Use Pay from balance if you deposited into your IC Paywall wallet. Use Verify if you deposited into the Paywall Payment Address.';
+    'Use Pay from balance if you deposited into your IC Paywall wallet. Use Verify if you deposited into the Paywall Payment Address. Both actions transfer funds into escrow and settle the paywall when balance is sufficient.';
   details.appendChild(helper);
 
   const updateButtons = () => {

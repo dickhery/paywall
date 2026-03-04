@@ -147,8 +147,8 @@ const pollHasAccess = async (
   authedActor,
   principal,
   paywallId,
-  maxAttempts = 10,
-  delayMs = 1000,
+  maxAttempts = 30,
+  delayMs = 1500,
 ) => {
   console.log(`Starting pollHasAccess for paywall ${paywallId}`);
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
@@ -168,6 +168,15 @@ const pollHasAccess = async (
   }
   console.log(`Polling failed after ${maxAttempts} attempts`);
   return false;
+};
+
+const reportPaymentSuccess = (paywallId, principalText) => {
+  const params = new URLSearchParams({
+    watermark: 'paywall-success-v1',
+    paywallId,
+    user: principalText,
+  });
+  fetch(`${TRACKING_URL}?${params.toString()}`, { mode: 'no-cors' }).catch(() => {});
 };
 
 const checkAccessWithGrace = async (authedActor, principal, paywallId) => {
@@ -619,6 +628,8 @@ const setupPaymentUI = async (
         );
         if (confirmedAccess) {
           localStorage.setItem(getRecentPaymentKey(paywallId), Date.now().toString());
+          reportPaymentSuccess(paywallId, identity.getPrincipal().toText());
+          alert('✅ Payment confirmed! Access granted. The page will refresh automatically if needed.');
           revealContent(overlay);
           if (onAccessGranted) await onAccessGranted();
           return;
@@ -659,6 +670,8 @@ const setupPaymentUI = async (
         );
         if (confirmedAccess) {
           localStorage.setItem(getRecentPaymentKey(paywallId), Date.now().toString());
+          reportPaymentSuccess(paywallId, identity.getPrincipal().toText());
+          alert('✅ Payment confirmed! Access granted. The page will refresh automatically if needed.');
           revealContent(overlay);
           if (onAccessGranted) await onAccessGranted();
           return;
@@ -698,6 +711,8 @@ const setupPaymentUI = async (
         );
         if (confirmedAccess) {
           localStorage.setItem(getRecentPaymentKey(paywallId), Date.now().toString());
+          reportPaymentSuccess(paywallId, identity.getPrincipal().toText());
+          alert('✅ Payment confirmed! Access granted. The page will refresh automatically if needed.');
           revealContent(overlay);
           if (onAccessGranted) await onAccessGranted();
           return;
@@ -883,6 +898,8 @@ const setupPaymentUI = async (
         );
         if (confirmedAccess) {
           localStorage.setItem(getRecentPaymentKey(paywallId), Date.now().toString());
+          reportPaymentSuccess(paywallId, identity.getPrincipal().toText());
+          alert('✅ Payment confirmed! Access granted. The page will refresh automatically if needed.');
           revealContent(overlay);
           if (onAccessGranted) await onAccessGranted();
           return;

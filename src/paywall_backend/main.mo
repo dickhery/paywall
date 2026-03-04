@@ -412,6 +412,10 @@ persistent actor Paywall {
     Blob.toArray(Principal.toBlob(principal)).size() == 10;
   };
 
+  private func createdAtNow() : Nat64 {
+    Nat64.fromNat(Int.abs(Time.now()));
+  };
+
   private func mintCycles(
     amount : Nat,
     from_subaccount : ?Blob,
@@ -430,7 +434,7 @@ persistent actor Paywall {
       from_subaccount;
       fee = ?icpTransferFee;
       memo = ?memo;
-      created_at_time = null;
+      created_at_time = ?createdAtNow();
     });
     switch (transferResult) {
       case (#Err(err)) {
@@ -470,7 +474,7 @@ persistent actor Paywall {
       from_subaccount;
       fee = ?icpTransferFee;
       memo = ?memo;
-      created_at_time = null;
+      created_at_time = ?createdAtNow();
     });
     switch (transferResult) {
       case (#Err(err)) {
@@ -523,7 +527,7 @@ persistent actor Paywall {
             from_subaccount;
             fee = ?icpTransferFee;
             memo = null;
-            created_at_time = null;
+            created_at_time = ?createdAtNow();
           });
           switch (transferResult) {
             case (#Err(err)) {
@@ -542,7 +546,7 @@ persistent actor Paywall {
           fee = { e8s = Nat64.fromNat(icpTransferFee) };
           memo = 0;
           from_subaccount;
-          created_at_time = null;
+          created_at_time = ?createdAtNow();
         });
         switch (transferResult) {
           case (#Err(err)) {
@@ -562,7 +566,7 @@ persistent actor Paywall {
       fee = { e8s = Nat64.fromNat(icpTransferFee) };
       memo = 0;
       from_subaccount;
-      created_at_time = null;
+      created_at_time = ?createdAtNow();
     });
     switch (transferResult) {
       case (#Err(err)) {
@@ -614,25 +618,54 @@ persistent actor Paywall {
     var remaining = userAmount;
     let lastIndex = config.destinations.size() - 1;
     var index : Nat = 0;
-    for (destination in config.destinations.vals()) {
-      let amount = if (index == lastIndex) {
-        remaining;
-      } else {
-        (userAmount * destination.percentage) / 100;
-      };
-      if (index != lastIndex and remaining >= amount) {
-        remaining -= amount;
-      };
 
-      if (amount > 0) {
-        let paidResult = await sendPayment(amount, ?escrowSubaccount, destination.dest);
-        switch (paidResult) {
-          case (#Err(message)) { return #Err(message) };
-          case (#Ok) {};
+    var partialFailure : ?Text = null;
+    for (destination in config.destinations.vals()) {
+      switch (partialFailure) {
+        case (?_) {};
+        case null {
+          let amount = if (index == lastIndex) {
+            remaining;
+          } else {
+            (userAmount * destination.percentage) / 100;
+          };
+          if (index != lastIndex and remaining >= amount) {
+            remaining -= amount;
+          };
+
+          if (amount > 0) {
+            let paidResult = await sendPayment(amount, ?escrowSubaccount, destination.dest);
+            switch (paidResult) {
+              case (#Err(message)) {
+                partialFailure := ?message;
+              };
+              case (#Ok) {};
+            };
+          };
         };
       };
 
       index += 1;
+    };
+
+    switch (partialFailure) {
+      case (?message) {
+        let leftover = await balanceOfSubaccount(escrowSubaccount);
+        if (leftover > icpTransferFee) {
+          ignore await ledger.icrc1_transfer({
+            to = { owner = Principal.fromActor(Paywall); subaccount = ?refundSubaccount };
+            amount = leftover - icpTransferFee;
+            from_subaccount = ?escrowSubaccount;
+            fee = ?icpTransferFee;
+            memo = ?Blob.fromArray([0x50, 0x41, 0x52, 0x54, 0x49, 0x41, 0x4C]); // "PARTIAL"
+            created_at_time = ?createdAtNow();
+          });
+        };
+        return #Err(
+          "Settlement partially failed and remaining escrow was refunded. Error: " # message,
+        );
+      };
+      case null {};
     };
 
     let expiry = Time.now() + config.session_duration_ns;
@@ -657,7 +690,7 @@ persistent actor Paywall {
         from_subaccount = ?escrowSubaccount;
         fee = ?icpTransferFee;
         memo = null;
-        created_at_time = null;
+        created_at_time = ?createdAtNow();
       });
     };
 
@@ -738,7 +771,7 @@ persistent actor Paywall {
           from_subaccount = ?subaccount;
           fee = ?icpTransferFee;
           memo = null;
-          created_at_time = null;
+          created_at_time = ?createdAtNow();
         });
         switch (result) {
           case (#Ok(blockIndex)) #Ok(blockIndex);
@@ -752,7 +785,7 @@ persistent actor Paywall {
           fee = { e8s = Nat64.fromNat(icpTransferFee) };
           memo = 0;
           from_subaccount = ?subaccount;
-          created_at_time = null;
+          created_at_time = ?createdAtNow();
         });
         switch (result) {
           case (#Ok(blockIndex)) #Ok(Nat64.toNat(blockIndex));
@@ -788,7 +821,7 @@ persistent actor Paywall {
         from_subaccount = ?userSubaccount;
         fee = ?icpTransferFee;
         memo = null;
-        created_at_time = null;
+        created_at_time = ?createdAtNow();
       });
 
       switch (fundResult) {
@@ -826,7 +859,7 @@ persistent actor Paywall {
         from_subaccount = ?paywallSubaccount;
         fee = ?icpTransferFee;
         memo = null;
-        created_at_time = null;
+        created_at_time = ?createdAtNow();
       });
 
       switch (fundResult) {
@@ -867,7 +900,7 @@ persistent actor Paywall {
       from_subaccount = ?escrowSubaccount;
       fee = ?icpTransferFee;
       memo = null;
-      created_at_time = null;
+      created_at_time = ?createdAtNow();
     });
 
     switch (result) {

@@ -554,9 +554,8 @@ const setupPaymentUI = async (
     <strong>How this paywall works:</strong><br>
     • Deposit ICP to the wallet address above.<br>
     • Click <strong>I have deposited – Unlock now</strong>.<br><br>
-    <strong>Buttons explained:</strong><br>
-    • <strong>I have deposited – Unlock now</strong>: Pays from your wallet balance.<br>
-    • <strong>Pay from balance</strong>: Attempts payment from your wallet balance.<br>
+    <strong>Button explained:</strong><br>
+    • <strong>I have deposited – Unlock now</strong>: Pays from your wallet balance (the only payment method).<br>
     • <strong>Refresh balances</strong>: Updates wallet balance after deposit.<br>
     • <strong>Retry payment settlement</strong>: Retries moving escrowed funds to the paywall owner if settlement got stuck.<br>
     • <strong>Refund escrow</strong>: Sends escrowed funds back to your wallet balance.<br>
@@ -593,65 +592,17 @@ const setupPaymentUI = async (
     'background:#16a34a;color:#fff;border:none;border-radius:12px;padding:14px 20px;font-size:16px;font-weight:600;cursor:pointer;width:100%;margin:16px 0 8px;min-height:52px;';
   makePaymentBtn.textContent = 'I have deposited – Unlock now';
 
-  const payFromBalanceButton = document.createElement('button');
-  payFromBalanceButton.type = 'button';
-  payFromBalanceButton.style.cssText =
-    'background:#065f46;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:13px;min-height:40px;';
-  payFromBalanceButton.textContent = 'Pay from balance';
-  payFromBalanceButton.addEventListener('click', async () => {
-    if (!confirm(
-      '⚠️ IMPORTANT WARNING\n\n' +
-      'After this payment you will NOT be able to withdraw any remaining ICP ' +
-      'from your wallet until the paid session expires.\n\n' +
-      'Withdraw excess funds NOW if you have any.\n\n' +
-      'Continue with payment?'
-    )) return;
-
-    payFromBalanceButton.disabled = true;
-    payFromBalanceButton.textContent = 'Processing...';
-
-    try {
-      const result = await authedActor.payFromBalance(paywallId);
-      if ('Ok' in result) {
-        const confirmedAccess = await pollHasAccess(
-          authedActor,
-          identity.getPrincipal(),
-          paywallId,
-        );
-        if (confirmedAccess) {
-          localStorage.setItem(getRecentPaymentKey(paywallId), Date.now().toString());
-          reportPaymentSuccess(paywallId, identity.getPrincipal().toText());
-          alert('✅ Payment confirmed! Access granted. The page will refresh automatically if needed.');
-          revealContent(overlay);
-          if (onAccessGranted) await onAccessGranted();
-          return;
-        }
-        alert('Payment succeeded, but access is still propagating. Wait a moment and refresh.');
-      } else {
-        const msg = formatInsufficientBalanceMessage(result.Err || 'Unknown error');
-        alert(`Payment failed: ${msg}. Click Refresh balances and try again.`);
-      }
-    } catch (error) {
-      let msg = formatErrorMessage(error, 'Unknown error');
-      msg = formatInsufficientBalanceMessage(msg);
-      alert(`${msg}\n\nClick “Refresh balances” and try again.`);
-      console.error('payFromBalance error:', error);
-    } finally {
-      payFromBalanceButton.disabled = false;
-      payFromBalanceButton.textContent = 'Pay from balance';
-      updateActionArea();
-    }
-  });
-
 
   makePaymentBtn.addEventListener('click', async () => {
-    if (!confirm(
-      '⚠️ IMPORTANT WARNING\n\n' +
-      'After this payment you will NOT be able to withdraw any remaining ICP ' +
-      'from your wallet until the paid session expires.\n\n' +
-      'Withdraw excess funds NOW if you have any.\n\n' +
-      'Continue with payment?'
-    )) return;
+    const durationText = formatDuration(config.session_duration_ns);
+    const priceText = priceIcp.toFixed(8);
+    const confirmMessage =
+      `After this payment of ${priceText} ICP you will have access for ${durationText}.\n\n` +
+      'Any extra ICP left in your paywall wallet will be locked until that access expires.\n\n' +
+      'If you have more ICP in the wallet than you want to lock, please withdraw it now.\n\n' +
+      'Ready to continue?';
+
+    if (!confirm(confirmMessage)) return;
 
     makePaymentBtn.disabled = true;
     makePaymentBtn.textContent = 'Processing payment…';
@@ -714,7 +665,6 @@ const setupPaymentUI = async (
     const hasRequiredBalance = walletInfo.balanceE8s >= requiredBalanceE8s;
 
     if (hasRequiredBalance) {
-      actionArea.appendChild(payFromBalanceButton);
       actionArea.appendChild(makePaymentBtn);
     }
 

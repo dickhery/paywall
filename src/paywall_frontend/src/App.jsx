@@ -81,6 +81,7 @@ function App() {
   const [paywallId, setPaywallId] = useState('');
   const [ownedPaywalls, setOwnedPaywalls] = useState([]);
   const [paywallConfigs, setPaywallConfigs] = useState({});
+  const [paywallBalances, setPaywallBalances] = useState({});
   const [refreshingPaywallId, setRefreshingPaywallId] = useState(null);
   const [expandedPaywalls, setExpandedPaywalls] = useState(new Set());
   const [expandedSections, setExpandedSections] = useState(new Map());
@@ -318,11 +319,29 @@ function App() {
     );
     setOwnedPaywalls(ids);
     const configs = {};
+    const balances = {};
+    let userBalance = 0n;
+    try {
+      userBalance = await actor.getUserBalance();
+    } catch (error) {
+      console.warn('Unable to fetch global wallet balance:', error);
+    }
+
     for (const id of ids) {
       const config = await actor.getPaywallConfig(id);
       if (config[0]) configs[id] = config[0];
+      try {
+        const paywallBalance = await actor.getPaywallBalance(id);
+        balances[id] = {
+          userBalance,
+          paywallBalance: paywallBalance?.[0] ?? 0n,
+        };
+      } catch (error) {
+        console.warn(`Unable to fetch balance for ${id}:`, error);
+      }
     }
     setPaywallConfigs(configs);
+    setPaywallBalances(balances);
   }, [authClient, getActor, isAuthenticated, principalText]);
 
   useEffect(() => {
@@ -1041,6 +1060,14 @@ function App() {
                             >
                               {refreshingPaywallId === id ? 'Refreshing...' : 'Refresh'}
                             </button>
+                          </p>
+                          <p>
+                            <strong>Global wallet balance:</strong>{' '}
+                            {formatIcp(paywallBalances[id]?.userBalance ?? 0n)} ICP
+                          </p>
+                          <p>
+                            <strong>Paywall-specific balance:</strong>{' '}
+                            {formatIcp(paywallBalances[id]?.paywallBalance ?? 0n)} ICP
                           </p>
                           <p>
                             <strong>Embed Script:</strong>

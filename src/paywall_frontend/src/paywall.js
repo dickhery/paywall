@@ -242,6 +242,11 @@ const idlFactory = ({ IDL }) => {
     settleEscrow: IDL.Func([IDL.Text], [PaymentResult], []),
     refundEscrow: IDL.Func([IDL.Text], [PaymentResult], []),
     withdrawFromWallet: IDL.Func([IDL.Nat, WithdrawTo], [TransferResult], []),
+    withdrawFromPaywallAccount: IDL.Func(
+      [IDL.Text, IDL.Nat, WithdrawTo],
+      [TransferResult],
+      [],
+    ),
     getAccessExpiry: IDL.Func([IDL.Principal, IDL.Text], [IDL.Opt(IDL.Int)], ['query']),
     logTamper: IDL.Func([IDL.Text, IDL.Text], [], ['query']),
   });
@@ -880,6 +885,59 @@ const setupPaymentUI = async (
     }
   });
   advancedActions.appendChild(withdrawButton);
+
+  const withdrawPaywallButton = document.createElement('button');
+  withdrawPaywallButton.textContent = 'Withdraw from paywall payment address';
+  withdrawPaywallButton.style.cssText =
+    'background:#0ea5e9;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:14px;cursor:pointer;min-height:44px;';
+  withdrawPaywallButton.addEventListener('click', async () => {
+    const destination = prompt('Enter destination Principal or Account ID:');
+    if (!destination) return;
+    const input = destination.trim();
+
+    let to;
+    if (/^[0-9a-fA-F]{64}$/.test(input)) {
+      to = { LegacyAccountId: hexToBytes(input) };
+    } else {
+      try {
+        const principal = Principal.fromText(input);
+        to = { Account: { owner: principal, subaccount: [] } };
+      } catch (error) {
+        alert('Invalid input: Must be a valid Principal or 64-hex Account ID.');
+        return;
+      }
+    }
+
+    const amountText = prompt('Enter amount in ICP:');
+    if (!amountText) return;
+
+    const amountIcp = Number.parseFloat(amountText);
+    if (Number.isNaN(amountIcp) || amountIcp <= 0) {
+      alert('Invalid amount.');
+      return;
+    }
+    const amountE8s = BigInt(Math.round(amountIcp * 100_000_000));
+    const confirmMessage = `Confirm withdrawal of ${amountIcp.toFixed(8)} ICP from paywall address to ${destination}?`;
+    if (!confirm(confirmMessage)) return;
+
+    withdrawPaywallButton.disabled = true;
+    withdrawPaywallButton.textContent = 'Withdrawing...';
+    try {
+      const result = await authedActor.withdrawFromPaywallAccount(paywallId, amountE8s, to);
+      if ('Ok' in result) {
+        alert(`Withdraw successful! Block index: ${result.Ok}`);
+      } else {
+        alert(`Withdraw failed: ${result.Err}`);
+      }
+    } catch (error) {
+      alert(`Withdrawal error: ${formatErrorMessage(error, 'Unknown error')}`);
+      console.error('Paywall withdrawal error:', error);
+    } finally {
+      withdrawPaywallButton.disabled = false;
+      withdrawPaywallButton.textContent = 'Withdraw from paywall payment address';
+    }
+  });
+  advancedActions.appendChild(withdrawPaywallButton);
 
   const retrySettleButton = document.createElement('button');
   retrySettleButton.textContent = 'Retry payment settlement';

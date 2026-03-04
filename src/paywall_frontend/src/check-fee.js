@@ -43,11 +43,6 @@ const checks = [
     pattern:
       /public\s+shared\(msg\)\s+func\s+payFromBalance\s*\([\s\S]*?await\s+settleFromEscrow\s*\(\s*caller\s*,\s*paywallId\s*,\s*config\s*,\s*escrowSubaccount\s*,\s*userSubaccount\s*\)\s*;/,
   },
-  {
-    description: 'verifyPayment uses escrow settlement',
-    pattern:
-      /public\s+shared\(msg\)\s+func\s+verifyPayment\s*\([\s\S]*?await\s+settleFromEscrow\s*\(\s*caller\s*,\s*paywallId\s*,\s*config\s*,\s*escrowSubaccount\s*,\s*paywallSubaccount\s*\)\s*;/,
-  },
 ];
 
 let allPassed = true;

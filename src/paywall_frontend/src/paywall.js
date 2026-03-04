@@ -221,6 +221,7 @@ const idlFactory = ({ IDL }) => {
     destinations: IDL.Vec(Destination),
     login_prompt_text: IDL.Opt(IDL.Text),
     payment_prompt_text: IDL.Opt(IDL.Text),
+    usage_count: IDL.Nat,
   });
   const Account = IDL.Record({
     owner: IDL.Principal,
@@ -234,19 +235,12 @@ const idlFactory = ({ IDL }) => {
   const TransferResult = IDL.Variant({ Ok: IDL.Nat, Err: IDL.Text });
   return IDL.Service({
     getPaywallConfig: IDL.Func([IDL.Text], [IDL.Opt(PaywallConfig)], ['query']),
-    getPaymentAccount: IDL.Func([IDL.Text], [IDL.Opt(Account)], []),
     getUserAccount: IDL.Func([], [Account], []),
     hasAccess: IDL.Func([IDL.Principal, IDL.Text], [IDL.Bool], ['query']),
     payFromBalance: IDL.Func([IDL.Text], [PaymentResult], []),
-    verifyPayment: IDL.Func([IDL.Text], [PaymentResult], []),
     settleEscrow: IDL.Func([IDL.Text], [PaymentResult], []),
     refundEscrow: IDL.Func([IDL.Text], [PaymentResult], []),
     withdrawFromWallet: IDL.Func([IDL.Nat, WithdrawTo], [TransferResult], []),
-    withdrawFromPaywallAccount: IDL.Func(
-      [IDL.Text, IDL.Nat, WithdrawTo],
-      [TransferResult],
-      [],
-    ),
     getAccessExpiry: IDL.Func([IDL.Principal, IDL.Text], [IDL.Opt(IDL.Int)], ['query']),
     logTamper: IDL.Func([IDL.Text, IDL.Text], [], ['query']),
   });
@@ -557,14 +551,13 @@ const setupPaymentUI = async (
   guideContent.style.cssText =
     'display:none;background:rgba(255,255,255,0.05);padding:14px;border-radius:10px;margin:0 0 12px;font-size:13px;line-height:1.5;color:#e5e7eb;';
   guideContent.innerHTML = `
-    <strong>Two ways to pay:</strong><br>
-    • Deposit to your <strong>wallet address</strong> (Option A), then click <strong>Pay from balance</strong>.<br>
-    • Deposit to the <strong>paywall address</strong> (Option B), then click <strong>Verify payment</strong>.<br><br>
+    <strong>How this paywall works:</strong><br>
+    • Deposit ICP to the wallet address above.<br>
+    • Click <strong>I have deposited – Unlock now</strong>.<br><br>
     <strong>Buttons explained:</strong><br>
-    • <strong>I have deposited – Unlock now</strong>: Tries both payment methods automatically.<br>
+    • <strong>I have deposited – Unlock now</strong>: Pays from your wallet balance.<br>
     • <strong>Pay from balance</strong>: Attempts payment from your wallet balance.<br>
-    • <strong>Verify payment</strong>: Verifies manual deposit to the paywall address.<br>
-    • <strong>Refresh balances</strong>: Updates wallet/paywall balances after deposit.<br>
+    • <strong>Refresh balances</strong>: Updates wallet balance after deposit.<br>
     • <strong>Retry payment settlement</strong>: Retries moving escrowed funds to the paywall owner if settlement got stuck.<br>
     • <strong>Refund escrow</strong>: Sends escrowed funds back to your wallet balance.<br>
     • <strong>Withdraw from wallet balance</strong>: Transfer wallet funds to another account/principal.<br><br>
@@ -585,28 +578,14 @@ const setupPaymentUI = async (
   const walletAccount = await authedActor.getUserAccount();
   const walletInfo = await getAccountInfo(walletAccount, 'wallet');
 
-  const paymentAccountOpt = await authedActor.getPaymentAccount(paywallId);
-  const paymentAccount = paymentAccountOpt?.[0] || null;
-  const paymentInfo = paymentAccount
-    ? await getAccountInfo(paymentAccount, 'paywall payment')
-    : null;
 
   const walletBlock = renderAccountBlock(
-    'Option A: Deposit to your IC Paywall wallet (supports Withdraw)',
+    'Your Paywall Wallet (deposit ICP here)',
     walletInfo.accountIdentifier,
     walletInfo.balanceE8s,
   );
   details.appendChild(walletBlock.wrapper);
 
-  let paymentBlock = null;
-  if (paymentInfo) {
-    paymentBlock = renderAccountBlock(
-      'Option B: Deposit to this Paywall Payment Address (then click Verify)',
-      paymentInfo.accountIdentifier,
-      paymentInfo.balanceE8s,
-    );
-    details.appendChild(paymentBlock.wrapper);
-  }
 
   const makePaymentBtn = document.createElement('button');
   makePaymentBtn.type = 'button';
@@ -620,6 +599,14 @@ const setupPaymentUI = async (
     'background:#065f46;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:13px;min-height:40px;';
   payFromBalanceButton.textContent = 'Pay from balance';
   payFromBalanceButton.addEventListener('click', async () => {
+    if (!confirm(
+      '⚠️ IMPORTANT WARNING\n\n' +
+      'After this payment you will NOT be able to withdraw any remaining ICP ' +
+      'from your wallet until the paid session expires.\n\n' +
+      'Withdraw excess funds NOW if you have any.\n\n' +
+      'Continue with payment?'
+    )) return;
+
     payFromBalanceButton.disabled = true;
     payFromBalanceButton.textContent = 'Processing...';
 
@@ -656,83 +643,38 @@ const setupPaymentUI = async (
     }
   });
 
-  const verifyPaymentButton = document.createElement('button');
-  verifyPaymentButton.type = 'button';
-  verifyPaymentButton.style.cssText =
-    'background:#4338ca;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:13px;min-height:40px;';
-  verifyPaymentButton.textContent = 'Verify payment';
-  verifyPaymentButton.addEventListener('click', async () => {
-    verifyPaymentButton.disabled = true;
-    verifyPaymentButton.textContent = 'Verifying...';
-
-    try {
-      const result = await authedActor.verifyPayment(paywallId);
-      if ('Ok' in result) {
-        const confirmedAccess = await pollHasAccess(
-          authedActor,
-          identity.getPrincipal(),
-          paywallId,
-        );
-        if (confirmedAccess) {
-          localStorage.setItem(getRecentPaymentKey(paywallId), Date.now().toString());
-          reportPaymentSuccess(paywallId, identity.getPrincipal().toText());
-          alert('✅ Payment confirmed! Access granted. The page will refresh automatically if needed.');
-          revealContent(overlay);
-          if (onAccessGranted) await onAccessGranted();
-          return;
-        }
-        alert('Verification succeeded, but access is still propagating. Wait a moment and refresh.');
-      } else {
-        const msg = formatInsufficientBalanceMessage(result.Err || 'Unknown error');
-        alert(`Verification failed: ${msg}. Click Refresh balances and try again.`);
-      }
-    } catch (error) {
-      let msg = formatErrorMessage(error, 'Unknown error');
-      msg = formatInsufficientBalanceMessage(msg);
-      alert(`${msg}\n\nClick “Refresh balances” and try again.`);
-      console.error('verifyPayment error:', error);
-    } finally {
-      verifyPaymentButton.disabled = false;
-      verifyPaymentButton.textContent = 'Verify payment';
-      updateActionArea();
-    }
-  });
 
   makePaymentBtn.addEventListener('click', async () => {
+    if (!confirm(
+      '⚠️ IMPORTANT WARNING\n\n' +
+      'After this payment you will NOT be able to withdraw any remaining ICP ' +
+      'from your wallet until the paid session expires.\n\n' +
+      'Withdraw excess funds NOW if you have any.\n\n' +
+      'Continue with payment?'
+    )) return;
+
     makePaymentBtn.disabled = true;
     makePaymentBtn.textContent = 'Processing payment…';
 
     try {
-      let result = await authedActor.payFromBalance(paywallId);
-      if ('Err' in result && result.Err?.includes('Insufficient')) {
-        result = await authedActor.verifyPayment(paywallId);
-      }
-
+      const result = await authedActor.payFromBalance(paywallId);
       if ('Ok' in result) {
-        const confirmedAccess = await pollHasAccess(
-          authedActor,
-          identity.getPrincipal(),
-          paywallId,
-        );
+        const confirmedAccess = await pollHasAccess(authedActor, identity.getPrincipal(), paywallId);
         if (confirmedAccess) {
           localStorage.setItem(getRecentPaymentKey(paywallId), Date.now().toString());
           reportPaymentSuccess(paywallId, identity.getPrincipal().toText());
-          alert('✅ Payment confirmed! Access granted. The page will refresh automatically if needed.');
+          alert('✅ Payment confirmed! Access granted.');
           revealContent(overlay);
           if (onAccessGranted) await onAccessGranted();
           return;
         }
-        alert(
-          'Payment succeeded but access is still syncing. Refresh the page in 5 seconds.',
-        );
+        alert('Payment succeeded but access is still syncing. Refresh the page.');
       } else {
         const msg = formatInsufficientBalanceMessage(result.Err || 'Unknown error');
         alert(`Payment failed: ${msg}`);
       }
     } catch (error) {
-      let msg = formatErrorMessage(error, 'Unknown error');
-      msg = formatInsufficientBalanceMessage(msg);
-      alert(`${msg}\n\nClick “Refresh balances” and try again.`);
+      alert(`Payment error: ${formatErrorMessage(error, 'Unknown error')}`);
     } finally {
       makePaymentBtn.disabled = false;
       makePaymentBtn.textContent = 'I have deposited – Unlock now';
@@ -768,37 +710,25 @@ const setupPaymentUI = async (
     actionArea.innerHTML = '';
     insufficientMessage.style.display = 'none';
 
-    const walletSufficient = walletInfo.balanceE8s >= requiredBalanceE8s;
-    const paywallSufficient = Boolean(
-      paymentInfo && paymentInfo.balanceE8s >= requiredBalanceE8s,
-    );
+    const hasWalletBalance = walletInfo.balanceE8s > 0n;
+    const hasRequiredBalance = walletInfo.balanceE8s >= requiredBalanceE8s;
 
-    if (walletSufficient || paywallSufficient) {
-      if (walletSufficient) actionArea.appendChild(payFromBalanceButton);
-      if (paywallSufficient) actionArea.appendChild(verifyPaymentButton);
+    if (hasRequiredBalance) {
+      actionArea.appendChild(payFromBalanceButton);
       actionArea.appendChild(makePaymentBtn);
-      advancedActions.style.display = 'grid';
-      return;
     }
 
-    advancedActions.style.display = 'none';
+    if (!hasRequiredBalance) {
+      const shortfall = requiredBalanceE8s - walletInfo.balanceE8s;
+      insufficientMessage.innerHTML = `
+        Deposit at least <strong>${formatIcp(requiredBalanceE8s)} ICP</strong> to your wallet.<br>
+        Current balance: ${formatIcp(walletInfo.balanceE8s)} ICP<br>
+        <span style="color:#ef4444">Shortfall: ${formatIcp(shortfall)} ICP</span>
+      `;
+      insufficientMessage.style.display = 'block';
+    }
 
-    let msg = 'Deposit more ICP to continue.<br>';
-    const walletShort = calculateShortfall(walletInfo.balanceE8s, requiredBalanceE8s);
-    if (walletShort > 0n) {
-      msg += `• Wallet needs ${formatIcp(walletShort)} ICP more<br>`;
-    }
-    if (paymentInfo) {
-      const paywallShort = calculateShortfall(
-        paymentInfo.balanceE8s,
-        requiredBalanceE8s,
-      );
-      if (paywallShort > 0n) {
-        msg += `• Paywall address needs ${formatIcp(paywallShort)} ICP more`;
-      }
-    }
-    insufficientMessage.innerHTML = msg;
-    insufficientMessage.style.display = 'block';
+    advancedActions.style.display = hasWalletBalance ? 'grid' : 'none';
   };
 
   updateActionArea();
@@ -813,15 +743,6 @@ const setupPaymentUI = async (
       });
       walletInfo.balanceE8s = refreshedWallet;
       walletBlock.bal.textContent = `Balance: ${(Number(walletInfo.balanceE8s) / 100_000_000).toFixed(8)} ICP`;
-
-      if (paymentInfo && paymentBlock) {
-        const refreshedPaywall = await ledger.accountBalance({
-          accountIdentifier: paymentInfo.accountIdentifier,
-          certified: false,
-        });
-        paymentInfo.balanceE8s = refreshedPaywall;
-        paymentBlock.bal.textContent = `Balance: ${(Number(paymentInfo.balanceE8s) / 100_000_000).toFixed(8)} ICP`;
-      }
 
       updateActionArea();
     } catch (error) {
@@ -886,58 +807,6 @@ const setupPaymentUI = async (
   });
   advancedActions.appendChild(withdrawButton);
 
-  const withdrawPaywallButton = document.createElement('button');
-  withdrawPaywallButton.textContent = 'Withdraw from paywall payment address';
-  withdrawPaywallButton.style.cssText =
-    'background:#0ea5e9;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:14px;cursor:pointer;min-height:44px;';
-  withdrawPaywallButton.addEventListener('click', async () => {
-    const destination = prompt('Enter destination Principal or Account ID:');
-    if (!destination) return;
-    const input = destination.trim();
-
-    let to;
-    if (/^[0-9a-fA-F]{64}$/.test(input)) {
-      to = { LegacyAccountId: hexToBytes(input) };
-    } else {
-      try {
-        const principal = Principal.fromText(input);
-        to = { Account: { owner: principal, subaccount: [] } };
-      } catch (error) {
-        alert('Invalid input: Must be a valid Principal or 64-hex Account ID.');
-        return;
-      }
-    }
-
-    const amountText = prompt('Enter amount in ICP:');
-    if (!amountText) return;
-
-    const amountIcp = Number.parseFloat(amountText);
-    if (Number.isNaN(amountIcp) || amountIcp <= 0) {
-      alert('Invalid amount.');
-      return;
-    }
-    const amountE8s = BigInt(Math.round(amountIcp * 100_000_000));
-    const confirmMessage = `Confirm withdrawal of ${amountIcp.toFixed(8)} ICP from paywall address to ${destination}?`;
-    if (!confirm(confirmMessage)) return;
-
-    withdrawPaywallButton.disabled = true;
-    withdrawPaywallButton.textContent = 'Withdrawing...';
-    try {
-      const result = await authedActor.withdrawFromPaywallAccount(paywallId, amountE8s, to);
-      if ('Ok' in result) {
-        alert(`Withdraw successful! Block index: ${result.Ok}`);
-      } else {
-        alert(`Withdraw failed: ${result.Err}`);
-      }
-    } catch (error) {
-      alert(`Withdrawal error: ${formatErrorMessage(error, 'Unknown error')}`);
-      console.error('Paywall withdrawal error:', error);
-    } finally {
-      withdrawPaywallButton.disabled = false;
-      withdrawPaywallButton.textContent = 'Withdraw from paywall payment address';
-    }
-  });
-  advancedActions.appendChild(withdrawPaywallButton);
 
   const retrySettleButton = document.createElement('button');
   retrySettleButton.textContent = 'Retry payment settlement';
@@ -1198,9 +1067,6 @@ const revealContent = (overlay) => {
 
 const run = async () => {
   try {
-    // Pre-initialize AuthClient at script load (async, but not in click handler)
-    const authClient = await AuthClient.create();  // Moved here from click handler
-
     const scriptTag = document.querySelector('script[data-paywall]');
     if (!scriptTag) return;
     const scriptSrc = scriptTag.src || '';
@@ -1336,18 +1202,19 @@ const run = async () => {
     await ensureBodyReady();
 
     const overlay = buildOverlay(async () => {
-      console.log('Login button clicked - starting auth flow');  // Debug log
+      console.log('Login button clicked - starting fresh auth flow');
       const loading = overlay.querySelector('#paywall-loading');
       const errorMessage = overlay.querySelector('#paywall-error');
       loading.style.display = 'block';
       errorMessage.style.display = 'none';
+
       try {
-        // Use pre-initialized authClient; call login() directly (no await before Promise)
-        console.log('Opening II login window');  // Debug log
+        const authClient = await AuthClient.create();
         await loginWithFallback(authClient);
 
         const identity = authClient.getIdentity();
         agent.replaceIdentity(identity);
+
         const authedActor = Actor.createActor(idlFactory, {
           agent,
           canisterId: backendId,
@@ -1358,6 +1225,7 @@ const run = async () => {
           identity.getPrincipal(),
           paywallId,
         );
+
         if (hasAccess) {
           revealContent(overlay);
           await scheduleAccessTimers(authedActor, identity);
@@ -1378,8 +1246,21 @@ const run = async () => {
           },
         );
       } catch (error) {
-        console.error('Error during login/access check:', error);
-        errorMessage.textContent = 'An error occurred. Please try again.';
+        console.error('=== PAYWALL LOGIN ERROR (full details) ===');
+        console.error('Name:', error?.name);
+        console.error('Message:', error?.message);
+        console.error('Stack:', error?.stack);
+
+        let userMsg = 'An error occurred. Please try again.';
+        if (error?.message?.includes('Failed to fetch') || error?.message?.includes('network')) {
+          userMsg = 'Network issue – check your connection and try again.';
+        } else if (error?.message?.includes('principal') || error?.message?.includes('identity')) {
+          userMsg = 'Authentication failed. Refresh the page and try logging in again.';
+        } else if (error?.message) {
+          userMsg = `Error: ${error.message.substring(0, 120)}`;
+        }
+
+        errorMessage.textContent = userMsg;
         errorMessage.style.display = 'block';
       } finally {
         loading.style.display = 'none';
@@ -1401,9 +1282,10 @@ const run = async () => {
 
     overlay.querySelector('#paywall-login-prompt').textContent = loginPromptText;
 
-    const isAuthed = await authClient.isAuthenticated();
+    const existingAuthClient = await AuthClient.create();
+    const isAuthed = await existingAuthClient.isAuthenticated();
     if (isAuthed) {
-      const identity = authClient.getIdentity();
+      const identity = existingAuthClient.getIdentity();
       agent.replaceIdentity(identity);
       const authedActor = Actor.createActor(idlFactory, {
         agent,
@@ -1429,6 +1311,7 @@ const run = async () => {
         return false;
       }
       try {
+        const authClient = await AuthClient.create();
         const isAuthed = await authClient.isAuthenticated();
         if (!isAuthed) {
           if (onFailure) onFailure();

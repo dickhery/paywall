@@ -518,7 +518,7 @@ const setupPaymentUI = async (
     : null;
 
   const walletBlock = renderAccountBlock(
-    'Option B: Deposit to your IC Paywall wallet (supports Withdraw)',
+    'Option A: Deposit to your IC Paywall wallet (supports Withdraw)',
     walletInfo.accountIdentifier,
     walletInfo.balanceE8s,
   );
@@ -527,7 +527,7 @@ const setupPaymentUI = async (
   let paymentBlock = null;
   if (paymentInfo) {
     paymentBlock = renderAccountBlock(
-      'Option A: Deposit to this Paywall Payment Address (then click Verify)',
+      'Option B: Deposit to this Paywall Payment Address (then click Verify)',
       paymentInfo.accountIdentifier,
       paymentInfo.balanceE8s,
     );

@@ -2,11 +2,10 @@ import { Actor, HttpAgent } from '@dfinity/agent';
 import { AuthClient } from '@dfinity/auth-client';
 import { IDL } from '@dfinity/candid';
 import { Buffer } from 'buffer';
-import { LedgerCanister, principalToAccountIdentifier } from '@dfinity/ledger-icp';
+import { principalToAccountIdentifier } from '@dfinity/ledger-icp';
 import { Principal } from '@dfinity/principal';
 
 const II_URL = 'https://id.ai/#authorize';
-const DEFAULT_LEDGER_ID = 'ryjl3-tyaaa-aaaaa-aaaba-cai';
 const LEDGER_FEE_E8S = 10000n;
 const WATERMARK_ID = 'wm-paywall-script-v1-def456-unique';
 const TRACKING_URL = 'https://r5s6s-waaaa-aaaab-ac3za-cai.icp0.io/track';
@@ -113,7 +112,7 @@ const pollHasAccess = async (
       console.warn(`Poll attempt ${attempt + 1} failed:`, error);
     }
     if (attempt < maxAttempts - 1) {
-      await delay(delayMs);
+      await delay(delayMs * Math.pow(1.5, attempt));
     }
   }
   console.log(`Polling failed after ${maxAttempts} attempts`);
@@ -177,12 +176,13 @@ const idlFactory = ({ IDL }) => {
     getPaywallConfig: IDL.Func([IDL.Text], [IDL.Opt(PaywallConfig)], ['query']),
     getPaymentAccount: IDL.Func([IDL.Text], [IDL.Opt(Account)], []),
     getUserAccount: IDL.Func([], [Account], []),
+    getUserBalance: IDL.Func([], [IDL.Nat], ['query']),
     hasAccess: IDL.Func([IDL.Principal, IDL.Text], [IDL.Bool], ['query']),
     payFromBalance: IDL.Func([IDL.Text], [PaymentResult], []),
     verifyPayment: IDL.Func([IDL.Text], [PaymentResult], []),
     withdrawFromWallet: IDL.Func([IDL.Nat, WithdrawTo], [TransferResult], []),
     getAccessExpiry: IDL.Func([IDL.Principal, IDL.Text], [IDL.Opt(IDL.Int)], ['query']),
-    logTamper: IDL.Func([IDL.Text, IDL.Text], [], ['query']),
+    logTamper: IDL.Func([IDL.Text, IDL.Text], [], []),
   });
 };
 
@@ -344,8 +344,6 @@ const setupPaymentUI = async (
   identity,
   config,
   paywallId,
-  agent,
-  ledgerId,
   onAccessGranted,
 ) => {
   const details = overlay.querySelector('#paywall-details');
@@ -353,7 +351,6 @@ const setupPaymentUI = async (
   details.innerHTML = '';
 
   const priceE8s = BigInt(config.price_e8s);
-  const priceIcp = Number(priceE8s) / 100_000_000;
   const transferCount = BigInt(config.destinations.length + 1);
   const requiredBalanceE8s = priceE8s + LEDGER_FEE_E8S * transferCount;
   const requiredBalanceIcp = Number(requiredBalanceE8s) / 100_000_000;
@@ -362,33 +359,23 @@ const setupPaymentUI = async (
     config.payment_prompt_text?.[0]?.trim() ||
     'Complete payment to continue.';
 
-  const userAccount = await authedActor.getUserAccount();
-  const ledger = LedgerCanister.create({
-    agent,
-    canisterId: Principal.fromText(ledgerId),
-  });
-  const userSubaccount = unwrapSubaccount(userAccount.subaccount);
+  const userAccount = await authedActor.getPaymentAccount(paywallId);
+  if (!userAccount || !userAccount[0]) {
+    alert('Could not get payment address. Please try again.');
+    return;
+  }
+  const account = userAccount[0];
+  const subaccount = unwrapSubaccount(account.subaccount);
+  const accountIdentifier = principalToAccountIdentifier(account.owner, subaccount);
+
   let userBalanceE8s = 0n;
   try {
-    const accountIdentifier = principalToAccountIdentifier(
-      userAccount.owner,
-      userSubaccount,
-    );
-    userBalanceE8s = await ledger.accountBalance({
-      accountIdentifier,
-      certified: false,
-    });
+    userBalanceE8s = await authedActor.getUserBalance();
   } catch (error) {
-    console.error('Error fetching user balance:', error);
-    alert(
-      'Failed to fetch your balance. Assuming 0 ICP. Please try again or deposit manually.',
-    );
+    console.error('Error fetching paywall deposit balance:', error);
+    alert('Failed to fetch your balance. Assuming 0 ICP.');
   }
   const userBalanceIcp = Number(userBalanceE8s) / 100_000_000;
-  const accountIdentifier = principalToAccountIdentifier(
-    userAccount.owner,
-    userSubaccount,
-  );
 
   const priceLine = document.createElement('p');
   priceLine.style.margin = '0 0 8px';
@@ -404,44 +391,62 @@ const setupPaymentUI = async (
 
   const balanceLine = document.createElement('p');
   balanceLine.style.margin = '0 0 12px';
-  balanceLine.textContent = `Your paywall balance: ${userBalanceIcp.toFixed(8)} ICP`;
+  balanceLine.innerHTML = `Paywall deposit address balance: <strong>${userBalanceIcp.toFixed(8)} ICP</strong>`;
   details.appendChild(balanceLine);
 
   const accountInfo = document.createElement('div');
   accountInfo.style.margin = '0 0 12px';
-  const accountLabel = document.createElement('p');
-  accountLabel.style.margin = '0 0 8px';
-  accountLabel.textContent = 'Your Account ID:';
-  const accountRow = document.createElement('div');
-  accountRow.style.cssText =
-    'display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;';
-  const accountSpan = document.createElement('span');
-  accountSpan.className = 'mono';
-  accountSpan.textContent = accountIdentifier;
-  accountSpan.style.cssText =
-    'word-break:break-all;display:block;max-width:100%;';
+  accountInfo.innerHTML = `
+    <p style="margin:0 0 8px">Deposit here (any wallet):</p>
+    <span class="mono" style="word-break:break-all;display:block">${accountIdentifier}</span>
+  `;
   const copyButton = document.createElement('button');
   copyButton.type = 'button';
-  copyButton.textContent = 'Copy';
+  copyButton.textContent = 'Copy address';
   copyButton.style.cssText =
-    'background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer;';
-  copyButton.addEventListener('click', async () => {
+    'background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer;margin-top:8px;';
+  copyButton.addEventListener('click', () => copyToClipboard(accountIdentifier));
+  accountInfo.appendChild(copyButton);
+  details.appendChild(accountInfo);
+
+  const verifyButton = document.createElement('button');
+  verifyButton.type = 'button';
+  verifyButton.textContent = 'I sent the ICP – Verify Payment';
+  verifyButton.style.cssText =
+    'background:#16a34a;color:#fff;border:none;border-radius:10px;padding:12px 16px;font-size:16px;cursor:pointer;width:100%;margin-bottom:12px;';
+  verifyButton.addEventListener('click', async () => {
+    verifyButton.disabled = true;
+    verifyButton.textContent = 'Verifying...';
     try {
-      await copyToClipboard(accountIdentifier);
-      copyButton.textContent = 'Copied!';
-      setTimeout(() => {
-        copyButton.textContent = 'Copy';
-      }, 1500);
+      const result = await authedActor.verifyPayment(paywallId);
+      if ('Ok' in result) {
+        localStorage.setItem(getRecentPaymentKey(paywallId), Date.now().toString());
+        const confirmed = await pollHasAccess(
+          authedActor,
+          identity.getPrincipal(),
+          paywallId,
+          30,
+          400,
+        );
+        if (confirmed) {
+          revealContent(overlay);
+          if (onAccessGranted) {
+            await onAccessGranted();
+          }
+          return;
+        }
+        alert('Payment received but still propagating – please wait 10s and click Verify again.');
+      } else {
+        alert(`Verification failed: ${result.Err}`);
+      }
     } catch (error) {
-      console.error('Copy failed:', error);
-      alert('Copy failed. Please copy the account ID manually.');
+      alert(`Error: ${formatErrorMessage(error)}`);
+    } finally {
+      verifyButton.disabled = false;
+      verifyButton.textContent = 'I sent the ICP – Verify Payment';
     }
   });
-  accountRow.appendChild(accountSpan);
-  accountRow.appendChild(copyButton);
-  accountInfo.appendChild(accountLabel);
-  accountInfo.appendChild(accountRow);
-  details.appendChild(accountInfo);
+  details.appendChild(verifyButton);
 
   const buildPayFromBalanceButton = () => {
     const payFromBalanceButton = document.createElement('button');
@@ -563,13 +568,10 @@ const setupPaymentUI = async (
     refreshButton.disabled = true;
     refreshButton.textContent = 'Refreshing...';
     try {
-      const refreshedBalanceE8s = await ledger.accountBalance({
-        accountIdentifier,
-        certified: false,
-      });
+      const refreshedBalanceE8s = await authedActor.getUserBalance();
       userBalanceE8s = refreshedBalanceE8s;
       const refreshedBalanceIcp = Number(userBalanceE8s) / 100_000_000;
-      balanceLine.textContent = `Your paywall balance: ${refreshedBalanceIcp.toFixed(8)} ICP`;
+      balanceLine.innerHTML = `Paywall deposit address balance: <strong>${refreshedBalanceIcp.toFixed(8)} ICP</strong>`;
 
       if (userBalanceE8s >= requiredBalanceE8s) {
         if (note) {
@@ -868,11 +870,6 @@ const run = async () => {
     initSessionTracker();
     const backendId =
       scriptTag.dataset.backendId || window.PAYWALL_BACKEND_ID || '';
-    const ledgerId =
-      scriptTag.dataset.ledgerId ||
-      window.PAYWALL_LEDGER_ID ||
-      DEFAULT_LEDGER_ID;
-
     if (!backendId) return;
 
     const expectedScriptHash = getExpectedScriptHash(scriptTag);
@@ -973,8 +970,6 @@ const run = async () => {
         identity,
         config,
         paywallId,
-        agent,
-        ledgerId,
         async () => {
           await scheduleAccessTimers(authedActor, identity);
         },
@@ -1026,8 +1021,6 @@ const run = async () => {
           identity,
           config,
           paywallId,
-          agent,
-          ledgerId,
           async () => {
             await scheduleAccessTimers(authedActor, identity);
           },

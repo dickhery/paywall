@@ -583,12 +583,24 @@ persistent actor Paywall {
   };
 
   public shared(msg) func createPaywall(config : PaywallConfig) : async Text {
+    if (config.destinations.size() == 0) {
+      return "Error: At least one destination is required";
+    };
+    if (config.destinations.size() > 3) {
+      return "Error: Maximum 3 destinations allowed";
+    };
+    var percentSum : Nat = 0;
+    for (destination in config.destinations.vals()) {
+      percentSum += destination.percentage;
+    };
+    if (percentSum != 100) {
+      return "Error: Destination percentages must sum to 100";
+    };
+    if (config.price_e8s < paywallMinPriceE8s) {
+      return "Error: Minimum price is 0.01 ICP (1_000_000 e8s)";
+    };
     let id = "pw-" # Nat.toText(nextPaywallId);
     nextPaywallId += 1;
-    validateDestinations(config.destinations);
-    if (config.price_e8s < paywallMinPriceE8s) {
-      Debug.trap("Minimum price is 0.01 ICP (1_000_000 e8s)");
-    };
     let configWithCount = { config with usage_count = 0 };
     paywallConfigs.put(id, configWithCount);
     logWatermark("Paywall created: " # id);
@@ -852,7 +864,15 @@ persistent actor Paywall {
     };
   };
 
-  public query func logTamper(paywallId : Text, details : Text) : async () {
+  public shared query (msg) func getUserBalance() : async Nat {
+    let subaccount = await deriveUserSubaccount(msg.caller);
+    await ledger.icrc1_balance_of({
+      owner = Principal.fromActor(Paywall);
+      subaccount = ?subaccount;
+    });
+  };
+
+  public shared func logTamper(paywallId : Text, details : Text) : async () {
     Debug.print("Tamper detected for paywall " # paywallId # ": " # details);
   };
 
@@ -870,7 +890,19 @@ persistent actor Paywall {
     let newDestinations = switch (updates.destinations) {
       case null config.destinations;
       case (?values) {
-        validateDestinations(values);
+        if (values.size() == 0) {
+          return;
+        };
+        if (values.size() > 3) {
+          return;
+        };
+        var percentSum : Nat = 0;
+        for (destination in values.vals()) {
+          percentSum += destination.percentage;
+        };
+        if (percentSum != 100) {
+          return;
+        };
         values;
       };
     };
@@ -880,7 +912,7 @@ persistent actor Paywall {
         case null config.price_e8s;
         case (?value) {
           if (value < paywallMinPriceE8s) {
-            Debug.trap("Minimum price is 0.01 ICP (1_000_000 e8s)");
+            return;
           };
           value;
         };

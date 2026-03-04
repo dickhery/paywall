@@ -65,6 +65,7 @@ function App() {
   const [authClient, setAuthClient] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [principalText, setPrincipalText] = useState('');
+  const [userBalance, setUserBalance] = useState(0n);
 
   const [priceIcp, setPriceIcp] = useState('0.1');
   const [targetUrl, setTargetUrl] = useState('');
@@ -188,6 +189,9 @@ function App() {
     const identity = client.getIdentity();
     setAuthClient(client);
     setIsAuthenticated(true);
+    const actor = await getActor(client);
+    const balance = await actor.getUserBalance();
+    setUserBalance(balance);
     setPrincipalText(identity.getPrincipal().toText());
   };
 
@@ -198,6 +202,7 @@ function App() {
     setAuthClient(null);
     setIsAuthenticated(false);
     setPrincipalText('');
+    setUserBalance(0n);
   };
 
   const parseDurationPart = (value) => {
@@ -651,6 +656,16 @@ function App() {
           </button>
         )}
       </section>
+
+      {isAuthenticated && (
+        <section className="card">
+          <h2>Your Wallet</h2>
+          <p>
+            Balance: <strong>{(Number(userBalance) / 100_000_000).toFixed(8)} ICP</strong>
+          </p>
+          <p className="hint">This is the balance visible to the paywall script.</p>
+        </section>
+      )}
 
       {!isAuthenticated && (
         <section className="info-section">

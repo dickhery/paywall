@@ -534,8 +534,57 @@ const setupPaymentUI = async (
     details.appendChild(paymentBlock.wrapper);
   }
 
+  const makePaymentBtn = document.createElement('button');
+  makePaymentBtn.type = 'button';
+  makePaymentBtn.style.cssText =
+    'background:#16a34a;color:#fff;border:none;border-radius:12px;padding:14px 20px;font-size:16px;font-weight:600;cursor:pointer;width:100%;margin:16px 0 8px;min-height:52px;';
+  makePaymentBtn.textContent = 'I have deposited – Unlock now';
+  makePaymentBtn.addEventListener('click', async () => {
+    makePaymentBtn.disabled = true;
+    makePaymentBtn.textContent = 'Processing payment…';
+
+    try {
+      let result = await authedActor.payFromBalance(paywallId);
+      if ('Err' in result && result.Err?.includes('Insufficient')) {
+        result = await authedActor.verifyPayment(paywallId);
+      }
+
+      if ('Ok' in result) {
+        const confirmedAccess = await pollHasAccess(
+          authedActor,
+          identity.getPrincipal(),
+          paywallId,
+        );
+        if (confirmedAccess) {
+          localStorage.setItem(getRecentPaymentKey(paywallId), Date.now().toString());
+          revealContent(overlay);
+          if (onAccessGranted) await onAccessGranted();
+          return;
+        }
+        alert(
+          'Payment succeeded but access is still syncing. Refresh the page in 5 seconds.',
+        );
+      } else {
+        alert(`Payment failed: ${result.Err || 'Unknown error'}`);
+      }
+    } catch (error) {
+      alert(`Error: ${formatErrorMessage(error, 'Unknown error')}`);
+    } finally {
+      makePaymentBtn.disabled = false;
+      makePaymentBtn.textContent = 'I have deposited – Unlock now';
+    }
+  });
+  details.appendChild(makePaymentBtn);
+
+  const helper = document.createElement('p');
+  helper.style.cssText = 'margin:12px 0 12px;color:#9ca3af;font-size:13px;text-align:center;';
+  helper.textContent =
+    'Deposit to either address above, then click the green button. Both wallet and paywall payment address deposits are supported.';
+  details.appendChild(helper);
+
   const buttonRow = document.createElement('div');
-  buttonRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:10px;margin:12px 0 6px;';
+  buttonRow.style.cssText =
+    'display:flex;flex-wrap:wrap;gap:10px;margin:4px 0 6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.08);';
   details.appendChild(buttonRow);
 
   const setButtonState = (button, canPay, readyLabel, needLabel) => {
@@ -545,22 +594,14 @@ const setupPaymentUI = async (
     button.style.cursor = 'pointer';
     button.title = canPay
       ? 'Ready to submit payment settlement.'
-      : 'You can still click this button; the backend will return the exact required amount if balance is insufficient.';
+      : 'You can still click this button; backend will return the exact required amount if insufficient.';
   };
 
   const payFromBalanceButton = document.createElement('button');
   payFromBalanceButton.type = 'button';
   payFromBalanceButton.style.cssText =
-    'background:#16a34a;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:14px;min-height:44px;';
+    'background:#065f46;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:13px;min-height:40px;';
   payFromBalanceButton.addEventListener('click', async () => {
-    const duration = formatDuration(config.session_duration_ns);
-    const confirmMessage =
-      `Pay ${requiredBalanceIcp.toFixed(8)} ICP total (includes network fees) from your Paywall wallet?
-
-` +
-      `This will unlock access for ${duration}.`;
-    if (!confirm(confirmMessage)) return;
-
     payFromBalanceButton.disabled = true;
     payFromBalanceButton.textContent = 'Processing...';
 
@@ -580,7 +621,7 @@ const setupPaymentUI = async (
         }
         alert('Payment succeeded, but access is still propagating. Wait a moment and refresh.');
       } else {
-        alert(`Payment failed: ${result.Err || 'Unknown error'}. If you just deposited, click Refresh balances and try again.`);
+        alert(`Payment failed: ${result.Err || 'Unknown error'}. Click Refresh balances and try again.`);
       }
     } catch (error) {
       alert(`Payment error: ${formatErrorMessage(error, 'Unknown error')}`);
@@ -594,16 +635,8 @@ const setupPaymentUI = async (
   const verifyPaymentButton = document.createElement('button');
   verifyPaymentButton.type = 'button';
   verifyPaymentButton.style.cssText =
-    'background:#4f46e5;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:14px;min-height:44px;';
+    'background:#4338ca;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:13px;min-height:40px;';
   verifyPaymentButton.addEventListener('click', async () => {
-    const duration = formatDuration(config.session_duration_ns);
-    const confirmMessage =
-      `Verify and settle a payment of ${requiredBalanceIcp.toFixed(8)} ICP total (includes network fees)?
-
-` +
-      `This will unlock access for ${duration}.`;
-    if (!confirm(confirmMessage)) return;
-
     verifyPaymentButton.disabled = true;
     verifyPaymentButton.textContent = 'Verifying...';
 
@@ -623,7 +656,7 @@ const setupPaymentUI = async (
         }
         alert('Verification succeeded, but access is still propagating. Wait a moment and refresh.');
       } else {
-        alert(`Verification failed: ${result.Err || 'Unknown error'}. If you just deposited, click Refresh balances and try again.`);
+        alert(`Verification failed: ${result.Err || 'Unknown error'}. Click Refresh balances and try again.`);
       }
     } catch (error) {
       alert(`Verification error: ${formatErrorMessage(error, 'Unknown error')}`);
@@ -637,18 +670,12 @@ const setupPaymentUI = async (
   buttonRow.appendChild(payFromBalanceButton);
   if (paymentInfo) buttonRow.appendChild(verifyPaymentButton);
 
-  const helper = document.createElement('p');
-  helper.style.cssText = 'margin:6px 0 12px;color:#9ca3af;font-size:13px;';
-  helper.textContent =
-    'Use Pay from balance if you deposited into your IC Paywall wallet. Use Verify if you deposited into the Paywall Payment Address. Both actions transfer funds into escrow and settle the paywall when balance is sufficient.';
-  details.appendChild(helper);
-
   const updateButtons = () => {
     const canPayFromWallet = walletInfo.balanceE8s >= requiredBalanceE8s;
     setButtonState(
       payFromBalanceButton,
       canPayFromWallet,
-      'Pay from balance',
+      'Pay from balance (advanced)',
       'Pay from balance (need more ICP)',
     );
 
@@ -657,7 +684,7 @@ const setupPaymentUI = async (
       setButtonState(
         verifyPaymentButton,
         canVerify,
-        'Verify payment',
+        'Verify payment (advanced)',
         'Verify payment (need more ICP)',
       );
     }

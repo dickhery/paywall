@@ -864,7 +864,7 @@ persistent actor Paywall {
     };
   };
 
-  public shared query (msg) func getUserBalance() : async Nat {
+  public shared(msg) func getUserBalance() : async Nat {
     let subaccount = await deriveUserSubaccount(msg.caller);
     await ledger.icrc1_balance_of({
       owner = Principal.fromActor(Paywall);

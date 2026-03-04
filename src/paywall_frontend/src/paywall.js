@@ -176,7 +176,7 @@ const idlFactory = ({ IDL }) => {
     getPaywallConfig: IDL.Func([IDL.Text], [IDL.Opt(PaywallConfig)], ['query']),
     getPaymentAccount: IDL.Func([IDL.Text], [IDL.Opt(Account)], []),
     getUserAccount: IDL.Func([], [Account], []),
-    getUserBalance: IDL.Func([], [IDL.Nat], ['query']),
+    getUserBalance: IDL.Func([], [IDL.Nat], []),
     hasAccess: IDL.Func([IDL.Principal, IDL.Text], [IDL.Bool], ['query']),
     payFromBalance: IDL.Func([IDL.Text], [PaymentResult], []),
     verifyPayment: IDL.Func([IDL.Text], [PaymentResult], []),

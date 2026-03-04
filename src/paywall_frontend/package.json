@@ -6,7 +6,7 @@
   "scripts": {
     "setup": "npm i && dfx canister create paywall_backend && dfx generate paywall_backend && dfx deploy",
     "start": "vite --port 3000",
-    "prebuild": "dfx generate",
+    "prebuild": "dfx generate paywall_backend",
     "build": "tsc && vite build",
     "format": "prettier --write \"src/**/*.{json,js,jsx,ts,tsx,css,scss}\"",
     "deploy-local": "dfx deploy --network local",

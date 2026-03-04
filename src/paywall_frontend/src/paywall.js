@@ -221,6 +221,7 @@ const idlFactory = ({ IDL }) => {
     destinations: IDL.Vec(Destination),
     login_prompt_text: IDL.Opt(IDL.Text),
     payment_prompt_text: IDL.Opt(IDL.Text),
+    usage_count: IDL.Nat,
   });
   const Account = IDL.Record({
     owner: IDL.Principal,
@@ -710,17 +711,24 @@ const setupPaymentUI = async (
     insufficientMessage.style.display = 'none';
 
     const hasWalletBalance = walletInfo.balanceE8s > 0n;
+    const hasRequiredBalance = walletInfo.balanceE8s >= requiredBalanceE8s;
 
-    if (hasWalletBalance) {
+    if (hasRequiredBalance) {
       actionArea.appendChild(payFromBalanceButton);
       actionArea.appendChild(makePaymentBtn);
-      advancedActions.style.display = 'grid';
-      return;
     }
 
-    advancedActions.style.display = 'none';
-    insufficientMessage.innerHTML = 'Deposit ICP to your wallet to unlock.';
-    insufficientMessage.style.display = 'block';
+    if (!hasRequiredBalance) {
+      const shortfall = requiredBalanceE8s - walletInfo.balanceE8s;
+      insufficientMessage.innerHTML = `
+        Deposit at least <strong>${formatIcp(requiredBalanceE8s)} ICP</strong> to your wallet.<br>
+        Current balance: ${formatIcp(walletInfo.balanceE8s)} ICP<br>
+        <span style="color:#ef4444">Shortfall: ${formatIcp(shortfall)} ICP</span>
+      `;
+      insufficientMessage.style.display = 'block';
+    }
+
+    advancedActions.style.display = hasWalletBalance ? 'grid' : 'none';
   };
 
   updateActionArea();
@@ -1059,9 +1067,6 @@ const revealContent = (overlay) => {
 
 const run = async () => {
   try {
-    // Pre-initialize AuthClient at script load (async, but not in click handler)
-    const authClient = await AuthClient.create();  // Moved here from click handler
-
     const scriptTag = document.querySelector('script[data-paywall]');
     if (!scriptTag) return;
     const scriptSrc = scriptTag.src || '';
@@ -1197,18 +1202,19 @@ const run = async () => {
     await ensureBodyReady();
 
     const overlay = buildOverlay(async () => {
-      console.log('Login button clicked - starting auth flow');  // Debug log
+      console.log('Login button clicked - starting fresh auth flow');
       const loading = overlay.querySelector('#paywall-loading');
       const errorMessage = overlay.querySelector('#paywall-error');
       loading.style.display = 'block';
       errorMessage.style.display = 'none';
+
       try {
-        // Use pre-initialized authClient; call login() directly (no await before Promise)
-        console.log('Opening II login window');  // Debug log
+        const authClient = await AuthClient.create();
         await loginWithFallback(authClient);
 
         const identity = authClient.getIdentity();
         agent.replaceIdentity(identity);
+
         const authedActor = Actor.createActor(idlFactory, {
           agent,
           canisterId: backendId,
@@ -1219,6 +1225,7 @@ const run = async () => {
           identity.getPrincipal(),
           paywallId,
         );
+
         if (hasAccess) {
           revealContent(overlay);
           await scheduleAccessTimers(authedActor, identity);
@@ -1239,8 +1246,21 @@ const run = async () => {
           },
         );
       } catch (error) {
-        console.error('Error during login/access check:', error);
-        errorMessage.textContent = 'An error occurred. Please try again.';
+        console.error('=== PAYWALL LOGIN ERROR (full details) ===');
+        console.error('Name:', error?.name);
+        console.error('Message:', error?.message);
+        console.error('Stack:', error?.stack);
+
+        let userMsg = 'An error occurred. Please try again.';
+        if (error?.message?.includes('Failed to fetch') || error?.message?.includes('network')) {
+          userMsg = 'Network issue – check your connection and try again.';
+        } else if (error?.message?.includes('principal') || error?.message?.includes('identity')) {
+          userMsg = 'Authentication failed. Refresh the page and try logging in again.';
+        } else if (error?.message) {
+          userMsg = `Error: ${error.message.substring(0, 120)}`;
+        }
+
+        errorMessage.textContent = userMsg;
         errorMessage.style.display = 'block';
       } finally {
         loading.style.display = 'none';
@@ -1262,9 +1282,10 @@ const run = async () => {
 
     overlay.querySelector('#paywall-login-prompt').textContent = loginPromptText;
 
-    const isAuthed = await authClient.isAuthenticated();
+    const existingAuthClient = await AuthClient.create();
+    const isAuthed = await existingAuthClient.isAuthenticated();
     if (isAuthed) {
-      const identity = authClient.getIdentity();
+      const identity = existingAuthClient.getIdentity();
       agent.replaceIdentity(identity);
       const authedActor = Actor.createActor(idlFactory, {
         agent,
@@ -1290,6 +1311,7 @@ const run = async () => {
         return false;
       }
       try {
+        const authClient = await AuthClient.create();
         const isAuthed = await authClient.isAuthenticated();
         if (!isAuthed) {
           if (onFailure) onFailure();

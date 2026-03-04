@@ -64,6 +64,26 @@ const formatErrorMessage = (error, fallback) => {
   return stringifyWithBigInt(error);
 };
 
+const formatIcp = (e8s) => {
+  const num = typeof e8s === 'bigint' ? Number(e8s) : Number(e8s);
+  if (!Number.isFinite(num)) return '0';
+  return (num / 100_000_000).toFixed(8).replace(/\.?0+$/, '');
+};
+
+const formatInsufficientBalanceMessage = (message) => {
+  if (!message?.includes('Insufficient balance')) {
+    return message;
+  }
+
+  const match = message.match(/have\s+(\d+),\s*need\s+(\d+)/i);
+  if (!match) {
+    return message;
+  }
+
+  const [, haveRaw, needRaw] = match;
+  return `Insufficient balance: you have ${formatIcp(haveRaw)} ICP but need ${formatIcp(needRaw)} ICP.`;
+};
+
 const formatDuration = (durationNs) => {
   if (typeof durationNs !== 'bigint' || durationNs < 0n) {
     return 'an unknown duration';
@@ -508,6 +528,41 @@ const setupPaymentUI = async (
   promptLine.textContent = paymentPromptText;
   details.appendChild(promptLine);
 
+  const guideBtn = document.createElement('button');
+  guideBtn.type = 'button';
+  guideBtn.textContent = '▼ How this paywall works';
+  guideBtn.style.cssText =
+    'background:#1f2937;color:#d1d5db;border:none;border-radius:10px;padding:10px 16px;font-size:13px;cursor:pointer;margin:0 0 10px;width:100%;text-align:left;';
+
+  const guideContent = document.createElement('div');
+  guideContent.style.cssText =
+    'display:none;background:rgba(255,255,255,0.05);padding:14px;border-radius:10px;margin:0 0 12px;font-size:13px;line-height:1.5;color:#e5e7eb;';
+  guideContent.innerHTML = `
+    <strong>Two ways to pay:</strong><br>
+    • Deposit to your <strong>wallet address</strong> (Option A), then click <strong>Pay from balance</strong>.<br>
+    • Deposit to the <strong>paywall address</strong> (Option B), then click <strong>Verify payment</strong>.<br><br>
+    <strong>Buttons explained:</strong><br>
+    • <strong>I have deposited – Unlock now</strong>: Tries both payment methods automatically.<br>
+    • <strong>Pay from balance</strong>: Attempts payment from your wallet balance.<br>
+    • <strong>Verify payment</strong>: Verifies manual deposit to the paywall address.<br>
+    • <strong>Refresh balances</strong>: Updates wallet/paywall balances after deposit.<br>
+    • <strong>Retry payment settlement</strong>: Retries moving escrowed funds to the paywall owner if settlement got stuck.<br>
+    • <strong>Refund escrow</strong>: Sends escrowed funds back to your wallet balance.<br>
+    • <strong>Withdraw from wallet balance</strong>: Transfer wallet funds to another account/principal.<br><br>
+    Network transfer fees are included in the total required ICP shown above.
+  `;
+
+  guideBtn.addEventListener('click', () => {
+    const shouldOpen = guideContent.style.display === 'none';
+    guideContent.style.display = shouldOpen ? 'block' : 'none';
+    guideBtn.textContent = shouldOpen
+      ? '▲ How this paywall works'
+      : '▼ How this paywall works';
+  });
+
+  details.appendChild(guideBtn);
+  details.appendChild(guideContent);
+
   const walletAccount = await authedActor.getUserAccount();
   const walletInfo = await getAccountInfo(walletAccount, 'wallet');
 
@@ -565,10 +620,13 @@ const setupPaymentUI = async (
           'Payment succeeded but access is still syncing. Refresh the page in 5 seconds.',
         );
       } else {
-        alert(`Payment failed: ${result.Err || 'Unknown error'}`);
+        const msg = formatInsufficientBalanceMessage(result.Err || 'Unknown error');
+        alert(`Payment failed: ${msg}`);
       }
     } catch (error) {
-      alert(`Error: ${formatErrorMessage(error, 'Unknown error')}`);
+      let msg = formatErrorMessage(error, 'Unknown error');
+      msg = formatInsufficientBalanceMessage(msg);
+      alert(`${msg}\n\nClick “Refresh balances” and try again.`);
     } finally {
       makePaymentBtn.disabled = false;
       makePaymentBtn.textContent = 'I have deposited – Unlock now';
@@ -621,10 +679,13 @@ const setupPaymentUI = async (
         }
         alert('Payment succeeded, but access is still propagating. Wait a moment and refresh.');
       } else {
-        alert(`Payment failed: ${result.Err || 'Unknown error'}. Click Refresh balances and try again.`);
+        const msg = formatInsufficientBalanceMessage(result.Err || 'Unknown error');
+        alert(`Payment failed: ${msg}. Click Refresh balances and try again.`);
       }
     } catch (error) {
-      alert(`Payment error: ${formatErrorMessage(error, 'Unknown error')}`);
+      let msg = formatErrorMessage(error, 'Unknown error');
+      msg = formatInsufficientBalanceMessage(msg);
+      alert(`${msg}\n\nClick “Refresh balances” and try again.`);
       console.error('payFromBalance error:', error);
     } finally {
       payFromBalanceButton.disabled = false;
@@ -656,10 +717,13 @@ const setupPaymentUI = async (
         }
         alert('Verification succeeded, but access is still propagating. Wait a moment and refresh.');
       } else {
-        alert(`Verification failed: ${result.Err || 'Unknown error'}. Click Refresh balances and try again.`);
+        const msg = formatInsufficientBalanceMessage(result.Err || 'Unknown error');
+        alert(`Verification failed: ${msg}. Click Refresh balances and try again.`);
       }
     } catch (error) {
-      alert(`Verification error: ${formatErrorMessage(error, 'Unknown error')}`);
+      let msg = formatErrorMessage(error, 'Unknown error');
+      msg = formatInsufficientBalanceMessage(msg);
+      alert(`${msg}\n\nClick “Refresh balances” and try again.`);
       console.error('verifyPayment error:', error);
     } finally {
       verifyPaymentButton.disabled = false;
@@ -675,7 +739,7 @@ const setupPaymentUI = async (
     setButtonState(
       payFromBalanceButton,
       canPayFromWallet,
-      'Pay from balance (advanced)',
+      'Pay from balance',
       'Pay from balance (need more ICP)',
     );
 
@@ -684,7 +748,7 @@ const setupPaymentUI = async (
       setButtonState(
         verifyPaymentButton,
         canVerify,
-        'Verify payment (advanced)',
+        'Verify payment',
         'Verify payment (need more ICP)',
       );
     }

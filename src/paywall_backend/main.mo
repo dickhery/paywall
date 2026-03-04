@@ -672,6 +672,9 @@ persistent actor Paywall {
         (userAmount * destination.percentage) / 100;
       };
       if (index != lastIndex) {
+        if (remaining < amount) {
+          return #Err("Distribution amount exceeded remaining balance.");
+        };
         remaining -= amount;
       };
       if (amount > 0) {
@@ -704,7 +707,7 @@ persistent actor Paywall {
     #Ok;
   };
 
-  public shared query (msg) func getUserBalance() : async Nat {
+  public shared(msg) func getUserBalance() : async Nat {
     let subaccount = await deriveUserSubaccount(msg.caller);
     await ledger.icrc1_balance_of({
       owner = Principal.fromActor(Paywall);
@@ -712,7 +715,7 @@ persistent actor Paywall {
     });
   };
 
-  public shared query (msg) func getPaywallBalance(paywallId : Text) : async ?Nat {
+  public shared(msg) func getPaywallBalance(paywallId : Text) : async ?Nat {
     switch (paywallConfigs.get(paywallId)) {
       case null null;
       case (?_) {

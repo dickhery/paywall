@@ -443,6 +443,23 @@ function App() {
     }
   }, []);
 
+  const copyToClipboard = useCallback(async (text, successMessage = 'Copied!') => {
+    try {
+      await navigator.clipboard.writeText(text);
+      alert(successMessage);
+    } catch (error) {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-999999px';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      alert(successMessage);
+    }
+  }, []);
+
   const startEdit = (id, config) => {
     setEditingId(id);
     setEditPriceIcp((Number(config.price_e8s) / 100_000_000).toString());
@@ -956,9 +973,31 @@ function App() {
                   Paywall ID: <span className="mono">{paywallId}</span>
                 </p>
                 <p>Embed this script in your site:</p>
-                <code>
-                  {`<script type="module" data-paywall data-backend-id="${process.env.CANISTER_ID_PAYWALL_BACKEND}" src="https://${process.env.CANISTER_ID_PAYWALL_FRONTEND}.icp0.io/paywall.js?paywallId=${paywallId}&v=${Date.now()}"></script>`}
-                </code>
+
+                <div style={{ position: 'relative', marginBottom: '12px' }}>
+                  <code style={{ display: 'block', paddingRight: '90px' }}>
+                    {buildEmbedScript(paywallId)}
+                  </code>
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    style={{
+                      position: 'absolute',
+                      top: '8px',
+                      right: '8px',
+                      padding: '6px 12px',
+                      fontSize: '13px',
+                    }}
+                    onClick={() =>
+                      copyToClipboard(
+                        buildEmbedScript(paywallId),
+                        'Embed script copied to clipboard!',
+                      )
+                    }
+                  >
+                    Copy script
+                  </button>
+                </div>
                 <p className="hint">
                   Place <span className="mono">script</span> in the head of the html file. Adjust cors headers if necessary.
                 </p>
@@ -1045,9 +1084,31 @@ function App() {
                           <p>
                             <strong>Embed Script:</strong>
                           </p>
-                          <code>
-                            {buildEmbedScript(id)}
-                          </code>
+
+                          <div style={{ position: 'relative', marginBottom: '12px' }}>
+                            <code style={{ display: 'block', paddingRight: '90px' }}>
+                              {buildEmbedScript(id)}
+                            </code>
+                            <button
+                              type="button"
+                              className="button-secondary"
+                              style={{
+                                position: 'absolute',
+                                top: '8px',
+                                right: '8px',
+                                padding: '6px 12px',
+                                fontSize: '13px',
+                              }}
+                              onClick={() =>
+                                copyToClipboard(
+                                  buildEmbedScript(id),
+                                  'Embed script copied to clipboard!',
+                                )
+                              }
+                            >
+                              Copy script
+                            </button>
+                          </div>
                           <p className="hint">
                             Place <span className="mono">script</span> in the head of the html file. Adjust cors headers if necessary.
                           </p>
@@ -1065,11 +1126,29 @@ function App() {
                               </p>
                               <p>
                                 <strong>Login Prompt:</strong>{' '}
-                                {config.login_prompt_text?.[0] || 'None set'}
+                                <span
+                                  className="mono"
+                                  style={{
+                                    background: '#f0f4ff',
+                                    padding: '2px 6px',
+                                    borderRadius: '4px',
+                                  }}
+                                >
+                                  {config.login_prompt_text?.[0] || 'None set'}
+                                </span>
                               </p>
                               <p>
                                 <strong>Payment Prompt:</strong>{' '}
-                                {config.payment_prompt_text?.[0] || 'None set'}
+                                <span
+                                  className="mono"
+                                  style={{
+                                    background: '#f0f4ff',
+                                    padding: '2px 6px',
+                                    borderRadius: '4px',
+                                  }}
+                                >
+                                  {config.payment_prompt_text?.[0] || 'None set'}
+                                </span>
                               </p>
                             </div>
                           )}

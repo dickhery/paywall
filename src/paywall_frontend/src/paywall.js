@@ -6,7 +6,7 @@ import { LedgerCanister, principalToAccountIdentifier } from '@dfinity/ledger-ic
 import { Principal } from '@dfinity/principal';
 
 const II_URL_PRIMARY = 'https://id.ai/#authorize';
-const II_URL_FALLBACK = 'https://identity.internetcomputer.org/#authorize';
+const II_URL_FALLBACK = 'https://id.ai/#authorize';
 const DEFAULT_LEDGER_ID = 'ryjl3-tyaaa-aaaaa-aaaba-cai';
 const DEFAULT_IC_HOST = 'https://icp-api.io';
 const LEDGER_FEE_E8S = 10000n;
@@ -525,8 +525,8 @@ const setupPaymentUI = async (
   };
 
   const headline = document.createElement('p');
-  headline.style.cssText = 'margin:0 0 10px;font-size:18px;font-weight:700;';
-  headline.textContent = `Payment required: ${requiredBalanceIcp.toFixed(8)} ICP total`;
+headline.style.cssText = 'margin:0 0 10px;font-size:18px;font-weight:700;';
+headline.textContent = `Payment required: ${requiredBalanceIcp.toFixed(8)} ICP total (price + fees)`;
   details.appendChild(headline);
 
   const breakdown = document.createElement('p');
@@ -597,10 +597,14 @@ const setupPaymentUI = async (
     const durationText = formatDuration(config.session_duration_ns);
     const priceText = priceIcp.toFixed(8);
     const confirmMessage =
-      `After this payment of ${priceText} ICP you will have access for ${durationText}.\n\n` +
-      'Any extra ICP left in your paywall wallet will be locked until that access expires.\n\n' +
-      'If you have more ICP in the wallet than you want to lock, please withdraw it now.\n\n' +
-      'Ready to continue?';
+    `You are about to be charged ${requiredBalanceIcp.toFixed(8)} ICP TOTAL from your paywall wallet balance.\n\n` +
+    `Breakdown:\n` +
+    `• Paywall price:          ${priceIcp.toFixed(8)} ICP\n` +
+    `• Ledger/network fees (est.): ${estimatedFeesIcp.toFixed(8)} ICP\n\n` +
+    `After successful settlement you will have access for ${durationText}.\n\n` +
+    '• Any extra ICP left in your wallet stays available for future payments.\n' +
+    '• If you have more ICP than you want to lock right now, withdraw it first.\n\n' +
+    'Ready to continue with payment?';
 
     if (!confirm(confirmMessage)) return;
 

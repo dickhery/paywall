@@ -584,7 +584,7 @@ persistent actor Paywall {
     escrowSubaccount : Blob,
     refundSubaccount : Blob,
   ) : async PaymentResult {
-    if (await hasAccess(caller, paywallId)) {
+    if (hasAccessAt(caller, paywallId, Time.now())) {
       let leftover = await balanceOfSubaccount(escrowSubaccount);
       if (leftover > icpTransferFee) {
         ignore await ledger.icrc1_transfer({
@@ -683,7 +683,7 @@ persistent actor Paywall {
       case null {};
     };
 
-    let expiry = Time.now() + config.session_duration_ns;
+    let expiry = Time.now() + Int.fromNat(config.session_duration_ns);
     let userMap = switch (paidStatuses.get(caller)) {
       case (?existing) existing;
       case null {
@@ -871,25 +871,34 @@ persistent actor Paywall {
     };
   };
 
-  public query func hasAccess(user : Principal, paywallId : Text) : async Bool {
+  private func accessExpiry(user : Principal, paywallId : Text) : ?Int {
     switch (paidStatuses.get(user)) {
-      case null false;
-      case (?userMap) {
-        switch (userMap.get(paywallId)) {
-          case null false;
-          case (?expiry) expiry > Time.now();
-        };
-      };
+      case null null;
+      case (?userMap) userMap.get(paywallId);
     };
   };
 
-  public query func getAccessExpiry(user : Principal, paywallId : Text) : async ?Int {
-    switch (paidStatuses.get(user)) {
-      case null null;
-      case (?userMap) {
-        userMap.get(paywallId);
-      };
+  private func hasAccessAt(user : Principal, paywallId : Text, now : Int) : Bool {
+    switch (accessExpiry(user, paywallId)) {
+      case null false;
+      case (?expiry) expiry > now;
     };
+  };
+
+  public query func hasAccess(user : Principal, paywallId : Text) : async Bool {
+    hasAccessAt(user, paywallId, Time.now());
+  };
+
+  public query func getAccessExpiry(user : Principal, paywallId : Text) : async ?Int {
+    accessExpiry(user, paywallId);
+  };
+
+  public shared(msg) func hasMyAccess(paywallId : Text) : async Bool {
+    hasAccessAt(msg.caller, paywallId, Time.now());
+  };
+
+  public shared(msg) func getMyAccessExpiry(paywallId : Text) : async ?Int {
+    accessExpiry(msg.caller, paywallId);
   };
 
   public shared func getEscrowBalance(paywallId : Text, user : Principal) : async Nat {

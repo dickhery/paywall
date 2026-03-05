@@ -19,6 +19,8 @@ const DEVTOOLS_THRESHOLD_PX = 160;
 const OVERLAY_STYLE =
   'position:fixed;inset:0;background:rgba(6,9,20,0.88);color:#fff;z-index:999999999;display:flex;align-items:center;justify-content:center;padding:24px;pointer-events:all;';
 const getRecentPaymentKey = (paywallId) => `paywall_recent_${paywallId}`;
+const getLocalExpiryKey = (paywallId) => `paywall_expiry_${paywallId}`;
+const nowNs = () => BigInt(Date.now()) * 1_000_000n;
 let storedBodyStyles = null;
 let overlayObserver = null;
 let paywallActive = false;
@@ -181,8 +183,18 @@ const reportPaymentSuccess = (paywallId, principalText) => {
 };
 
 const checkAccessWithGrace = async (authedActor, principal, paywallId) => {
-  let hasAccess = await authedActor.hasAccess(principal, paywallId);
-  if (hasAccess) return true;
+  const localExpiry = readLocalExpiry(paywallId);
+  if (localExpiry && localExpiry > nowNs()) {
+    return true;
+  }
+
+  let hasAccess = await tryHasMyAccess(authedActor, principal, paywallId);
+  if (hasAccess) {
+    const expiryResponse = await tryGetMyExpiry(authedActor, principal, paywallId);
+    const expiryNs = expiryResponse?.[0];
+    if (expiryNs) writeLocalExpiry(paywallId, expiryNs);
+    return true;
+  }
 
   const key = getRecentPaymentKey(paywallId);
   const timestampStr = localStorage.getItem(key);
@@ -190,12 +202,52 @@ const checkAccessWithGrace = async (authedActor, principal, paywallId) => {
     const timestamp = Number.parseInt(timestampStr, 10);
     if (!Number.isNaN(timestamp) && Date.now() - timestamp < GRACE_PERIOD_MS) {
       hasAccess = await pollHasAccess(authedActor, principal, paywallId, 60, 800);
-      if (hasAccess) return true;
+      if (hasAccess) {
+        const expiryResponse = await tryGetMyExpiry(authedActor, principal, paywallId);
+        const expiryNs = expiryResponse?.[0];
+        if (expiryNs) writeLocalExpiry(paywallId, expiryNs);
+        return true;
+      }
     } else {
       localStorage.removeItem(key);
     }
   }
   return false;
+};
+
+const readLocalExpiry = (paywallId) => {
+  try {
+    const raw = localStorage.getItem(getLocalExpiryKey(paywallId));
+    if (!raw) return null;
+    const value = BigInt(raw);
+    return value > 0n ? value : null;
+  } catch {
+    return null;
+  }
+};
+
+const writeLocalExpiry = (paywallId, expiryNs) => {
+  try {
+    if (typeof expiryNs === 'bigint') {
+      localStorage.setItem(getLocalExpiryKey(paywallId), expiryNs.toString());
+    }
+  } catch {}
+};
+
+const tryHasMyAccess = async (authedActor, principal, paywallId) => {
+  try {
+    return await authedActor.hasMyAccess(paywallId);
+  } catch (_error) {
+    return await authedActor.hasAccess(principal, paywallId);
+  }
+};
+
+const tryGetMyExpiry = async (authedActor, principal, paywallId) => {
+  try {
+    return await authedActor.getMyAccessExpiry(paywallId);
+  } catch (_error) {
+    return await authedActor.getAccessExpiry(principal, paywallId);
+  }
 };
 
 const unwrapSubaccount = (subaccount) => {
@@ -238,11 +290,13 @@ const idlFactory = ({ IDL }) => {
     getPaywallConfig: IDL.Func([IDL.Text], [IDL.Opt(PaywallConfig)], ['query']),
     getUserAccount: IDL.Func([], [Account], []),
     hasAccess: IDL.Func([IDL.Principal, IDL.Text], [IDL.Bool], ['query']),
+    hasMyAccess: IDL.Func([IDL.Text], [IDL.Bool], []),
     payFromBalance: IDL.Func([IDL.Text], [PaymentResult], []),
     settleEscrow: IDL.Func([IDL.Text], [PaymentResult], []),
     refundEscrow: IDL.Func([IDL.Text], [PaymentResult], []),
     withdrawFromWallet: IDL.Func([IDL.Nat, WithdrawTo], [TransferResult], []),
     getAccessExpiry: IDL.Func([IDL.Principal, IDL.Text], [IDL.Opt(IDL.Int)], ['query']),
+    getMyAccessExpiry: IDL.Func([IDL.Text], [IDL.Opt(IDL.Int)], []),
     getEscrowBalance: IDL.Func([IDL.Text, IDL.Principal], [IDL.Nat], []),
     logTamper: IDL.Func([IDL.Text, IDL.Text], [], ['query']),
   });
@@ -674,10 +728,17 @@ headline.textContent = `Payment required: ${requiredBalanceIcp.toFixed(8)} ICP t
     try {
       const result = await authedActor.payFromBalance(paywallId);
       if ('Ok' in result) {
-        const confirmedAccess = await pollHasAccess(authedActor, identity.getPrincipal(), paywallId, 60, 800);
+        localStorage.setItem(getRecentPaymentKey(paywallId), Date.now().toString());
+        const principal = identity.getPrincipal();
+        let confirmedAccess = await tryHasMyAccess(authedActor, principal, paywallId);
+        if (!confirmedAccess) {
+          confirmedAccess = await pollHasAccess(authedActor, principal, paywallId, 60, 800);
+        }
         if (confirmedAccess) {
-          localStorage.setItem(getRecentPaymentKey(paywallId), Date.now().toString());
-          reportPaymentSuccess(paywallId, identity.getPrincipal().toText());
+          const expiryOpt = await tryGetMyExpiry(authedActor, principal, paywallId);
+          const expiryNs = expiryOpt?.[0];
+          if (expiryNs) writeLocalExpiry(paywallId, expiryNs);
+          reportPaymentSuccess(paywallId, principal.toText());
           alert('✅ Payment confirmed! Access granted.');
           revealContent(overlay);
           if (onAccessGranted) await onAccessGranted();
@@ -835,16 +896,23 @@ headline.textContent = `Payment required: ${requiredBalanceIcp.toFixed(8)} ICP t
     try {
       const result = await authedActor.settleEscrow(paywallId);
       if ('Ok' in result) {
-        const confirmedAccess = await pollHasAccess(
-          authedActor,
-          identity.getPrincipal(),
-          paywallId,
-          60,
-          800,
-        );
+        localStorage.setItem(getRecentPaymentKey(paywallId), Date.now().toString());
+        const principal = identity.getPrincipal();
+        let confirmedAccess = await tryHasMyAccess(authedActor, principal, paywallId);
+        if (!confirmedAccess) {
+          confirmedAccess = await pollHasAccess(
+            authedActor,
+            principal,
+            paywallId,
+            60,
+            800,
+          );
+        }
         if (confirmedAccess) {
-          localStorage.setItem(getRecentPaymentKey(paywallId), Date.now().toString());
-          reportPaymentSuccess(paywallId, identity.getPrincipal().toText());
+          const expiryOpt = await tryGetMyExpiry(authedActor, principal, paywallId);
+          const expiryNs = expiryOpt?.[0];
+          if (expiryNs) writeLocalExpiry(paywallId, expiryNs);
+          reportPaymentSuccess(paywallId, principal.toText());
           alert('✅ Payment confirmed! Access granted. The page will refresh automatically if needed.');
           revealContent(overlay);
           if (onAccessGranted) await onAccessGranted();
@@ -1080,6 +1148,14 @@ const run = async () => {
 
     if (!backendId) return;
 
+    const instanceKey = `__ic_paywall__${backendId}__${paywallId}`;
+    window.__ic_paywall_instances = window.__ic_paywall_instances || {};
+    if (window.__ic_paywall_instances[instanceKey]) {
+      console.warn('IC Paywall already initialized for this paywall on this page. Skipping.');
+      return;
+    }
+    window.__ic_paywall_instances[instanceKey] = true;
+
     const expectedScriptHash = getExpectedScriptHash(scriptTag);
     const icHost = scriptTag.dataset.icHost || window.PAYWALL_IC_HOST || DEFAULT_IC_HOST;
     const agent = new HttpAgent({ host: icHost });
@@ -1115,11 +1191,14 @@ const run = async () => {
     const scheduleAccessTimers = async (authedActor, identity) => {
       clearAccessTimers();
       try {
-        const expiryResponse = await authedActor.getAccessExpiry(
-          identity.getPrincipal(),
+        const principal = identity.getPrincipal();
+        const expiryResponse = await tryGetMyExpiry(
+          authedActor,
+          principal,
           paywallId,
         );
-        const expiryNs = expiryResponse?.[0];
+        const expiryNs = expiryResponse?.[0] || readLocalExpiry(paywallId);
+        if (expiryNs) writeLocalExpiry(paywallId, expiryNs);
         if (expiryNs) {
           const nowNs = BigInt(Date.now()) * 1_000_000n;
           const remainingNs = expiryNs - nowNs;
@@ -1140,21 +1219,18 @@ const run = async () => {
       let failureStreak = 0;
       accessIntervalId = setInterval(async () => {
         try {
-          const stillHasAccess = await authedActor.hasAccess(
-            identity.getPrincipal(),
-            paywallId,
-          );
-          if (stillHasAccess) {
+          const principal = identity.getPrincipal();
+          const stillHasAccessQuery = await authedActor.hasAccess(principal, paywallId);
+          if (stillHasAccessQuery) {
             failureStreak = 0;
             return;
           }
 
-          await delay(1000);
-          const confirmAccess = await authedActor.hasAccess(
-            identity.getPrincipal(),
-            paywallId,
-          );
-          if (confirmAccess) {
+          const stillHasAccessFresh = await tryHasMyAccess(authedActor, principal, paywallId);
+          if (stillHasAccessFresh) {
+            const expiryResponse = await tryGetMyExpiry(authedActor, principal, paywallId);
+            const expiryNs = expiryResponse?.[0];
+            if (expiryNs) writeLocalExpiry(paywallId, expiryNs);
             failureStreak = 0;
             return;
           }
@@ -1321,7 +1397,8 @@ const run = async () => {
           agent: handshakeAgent,
           canisterId: backendId,
         });
-        let hasAccess = await authedActor.hasAccess(
+        let hasAccess = await tryHasMyAccess(
+          authedActor,
           identity.getPrincipal(),
           paywallId,
         );
@@ -1360,6 +1437,15 @@ const run = async () => {
     };
   } catch (error) {
     console.error('Paywall script error:', error);
+    const scriptTag = document.querySelector('script[data-paywall]');
+    const scriptSrc = scriptTag?.src || '';
+    const paywallUrl = scriptSrc ? new URL(scriptSrc) : null;
+    const paywallId = paywallUrl?.searchParams.get('paywallId');
+    const backendId = scriptTag?.dataset?.backendId || window.PAYWALL_BACKEND_ID || '';
+    const instanceKey = paywallId && backendId ? `__ic_paywall__${backendId}__${paywallId}` : null;
+    if (instanceKey && window.__ic_paywall_instances) {
+      delete window.__ic_paywall_instances[instanceKey];
+    }
     paywallActive = false;
     activeOverlay = null;
     tamperContext = null;

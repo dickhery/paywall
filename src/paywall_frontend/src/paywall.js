@@ -243,7 +243,7 @@ const idlFactory = ({ IDL }) => {
     refundEscrow: IDL.Func([IDL.Text], [PaymentResult], []),
     withdrawFromWallet: IDL.Func([IDL.Nat, WithdrawTo], [TransferResult], []),
     getAccessExpiry: IDL.Func([IDL.Principal, IDL.Text], [IDL.Opt(IDL.Int)], ['query']),
-    getEscrowBalance: IDL.Func([IDL.Text, IDL.Principal], [IDL.Nat], ['query']),
+    getEscrowBalance: IDL.Func([IDL.Text, IDL.Principal], [IDL.Nat], []),
     logTamper: IDL.Func([IDL.Text, IDL.Text], [], ['query']),
   });
 };

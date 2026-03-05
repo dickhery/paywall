@@ -892,7 +892,7 @@ persistent actor Paywall {
     };
   };
 
-  public query func getEscrowBalance(paywallId : Text, user : Principal) : async Nat {
+  public shared func getEscrowBalance(paywallId : Text, user : Principal) : async Nat {
     let escrowSubaccount = await deriveEscrowSubaccount(paywallId, user);
     await balanceOfSubaccount(escrowSubaccount);
   };

@@ -588,12 +588,63 @@ headline.textContent = `Payment required: ${requiredBalanceIcp.toFixed(8)} ICP t
   details.appendChild(walletBlock.wrapper);
 
   const escrowBalance = await authedActor.getEscrowBalance(paywallId, identity.getPrincipal());
-  const escrowBlock = renderAccountBlock(
-    'Escrow (temporary hold)',
-    '—',
-    escrowBalance,
-  );
-  details.appendChild(escrowBlock.wrapper);
+  const escrowWrapper = document.createElement('div');
+  escrowWrapper.style.cssText =
+    'margin:12px 0;padding:12px;border:1px solid rgba(255,255,255,0.12);border-radius:12px;background:rgba(255,255,255,0.04);';
+
+  const escrowHeader = document.createElement('p');
+  escrowHeader.style.cssText = 'margin:0 0 8px;font-weight:700;';
+  escrowHeader.textContent = 'Escrow (temporary hold)';
+  escrowWrapper.appendChild(escrowHeader);
+
+  const escrowBal = document.createElement('p');
+  escrowBal.style.cssText = 'margin:0 0 12px;color:#d1d5db;';
+  escrowWrapper.appendChild(escrowBal);
+
+  const escrowRefundNote = document.createElement('p');
+  escrowRefundNote.style.cssText = 'margin:4px 0 8px;font-size:12px;color:#9ca3af;display:none;';
+  escrowRefundNote.textContent = 'Returns funds to your wallet (no payments in progress)';
+  escrowWrapper.appendChild(escrowRefundNote);
+
+  const escrowRefundButton = document.createElement('button');
+  escrowRefundButton.type = 'button';
+  escrowRefundButton.textContent = 'Refund escrow';
+  escrowRefundButton.style.cssText =
+    'background:#ef4444;color:#fff;border:none;border-radius:10px;padding:8px 16px;font-size:14px;cursor:pointer;min-height:40px;width:100%;display:none;';
+  escrowWrapper.appendChild(escrowRefundButton);
+
+  let escrowBalanceE8s = escrowBalance;
+  const updateEscrowUi = (balanceE8s) => {
+    escrowBalanceE8s = balanceE8s;
+    escrowBal.textContent = `Balance: ${formatIcp(escrowBalanceE8s)} ICP`;
+    const showRefund = escrowBalanceE8s > LEDGER_FEE_E8S;
+    escrowRefundNote.style.display = showRefund ? 'block' : 'none';
+    escrowRefundButton.style.display = showRefund ? 'block' : 'none';
+  };
+
+  escrowRefundButton.addEventListener('click', async () => {
+    if (!confirm('Refund all escrow back to your Paywall wallet balance?')) return;
+
+    escrowRefundButton.disabled = true;
+    escrowRefundButton.textContent = 'Refunding...';
+    try {
+      const result = await authedActor.refundEscrow(paywallId);
+      if ('Ok' in result) {
+        alert('✅ Refund submitted successfully. Refreshing balances...');
+        refreshButton.click();
+      } else {
+        alert(`Refund failed: ${result.Err}`);
+      }
+    } catch (error) {
+      alert(`Refund error: ${formatErrorMessage(error, 'Unknown error')}`);
+    } finally {
+      escrowRefundButton.disabled = false;
+      escrowRefundButton.textContent = 'Refund escrow';
+    }
+  });
+
+  updateEscrowUi(escrowBalance);
+  details.appendChild(escrowWrapper);
 
   const makePaymentBtn = document.createElement('button');
   makePaymentBtn.type = 'button';
@@ -708,7 +759,7 @@ headline.textContent = `Payment required: ${requiredBalanceIcp.toFixed(8)} ICP t
       walletInfo.balanceE8s = refreshedWallet;
       walletBlock.bal.textContent = `Balance: ${(Number(walletInfo.balanceE8s) / 100_000_000).toFixed(8)} ICP`;
       const refreshedEscrow = await authedActor.getEscrowBalance(paywallId, identity.getPrincipal());
-      escrowBlock.bal.textContent = `Balance: ${(Number(refreshedEscrow) / 100_000_000).toFixed(8)} ICP`;
+      updateEscrowUi(refreshedEscrow);
 
       updateActionArea();
     } catch (error) {
@@ -813,30 +864,6 @@ headline.textContent = `Payment required: ${requiredBalanceIcp.toFixed(8)} ICP t
   });
   advancedActions.appendChild(retrySettleButton);
 
-  const refundEscrowButton = document.createElement('button');
-  refundEscrowButton.textContent = 'Refund escrow';
-  refundEscrowButton.style.cssText =
-    'background:#ef4444;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:14px;cursor:pointer;margin-top:12px;min-height:44px;';
-  refundEscrowButton.addEventListener('click', async () => {
-    if (!confirm('Refund escrow back to your paywall wallet balance?')) return;
-    refundEscrowButton.disabled = true;
-    refundEscrowButton.textContent = 'Refunding...';
-    try {
-      const result = await authedActor.refundEscrow(paywallId);
-      if ('Ok' in result) {
-        alert('Refund submitted. Balances will refresh now.');
-      } else {
-        alert(`Refund failed: ${result.Err}`);
-      }
-    } catch (error) {
-      alert(`Refund error: ${formatErrorMessage(error, 'Unknown error')}`);
-    } finally {
-      refundEscrowButton.disabled = false;
-      refundEscrowButton.textContent = 'Refund escrow';
-      refreshButton.click();
-    }
-  });
-  advancedActions.appendChild(refundEscrowButton);
 };
 
 const copyToClipboard = async (text) => {

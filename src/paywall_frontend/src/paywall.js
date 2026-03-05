@@ -12,6 +12,7 @@ const DEFAULT_IC_HOST = 'https://icp-api.io';
 const LEDGER_FEE_E8S = 10000n;
 const WATERMARK_ID = 'wm-paywall-script-v1-def456-unique';
 const TRACKING_URL = 'https://r5s6s-waaaa-aaaab-ac3za-cai.icp0.io/track';
+const GRACE_PERIOD_MS = 120000;
 const PERIODIC_CHECK_INTERVAL_MS = 30000;
 const TAMPER_CHECK_INTERVAL_MS = 5000;
 const DEVTOOLS_THRESHOLD_PX = 160;
@@ -187,8 +188,8 @@ const checkAccessWithGrace = async (authedActor, principal, paywallId) => {
   const timestampStr = localStorage.getItem(key);
   if (timestampStr) {
     const timestamp = Number.parseInt(timestampStr, 10);
-    if (!Number.isNaN(timestamp) && Date.now() - timestamp < 60000) {
-      hasAccess = await pollHasAccess(authedActor, principal, paywallId, 20, 500);
+    if (!Number.isNaN(timestamp) && Date.now() - timestamp < GRACE_PERIOD_MS) {
+      hasAccess = await pollHasAccess(authedActor, principal, paywallId, 60, 800);
       if (hasAccess) return true;
     } else {
       localStorage.removeItem(key);
@@ -242,6 +243,7 @@ const idlFactory = ({ IDL }) => {
     refundEscrow: IDL.Func([IDL.Text], [PaymentResult], []),
     withdrawFromWallet: IDL.Func([IDL.Nat, WithdrawTo], [TransferResult], []),
     getAccessExpiry: IDL.Func([IDL.Principal, IDL.Text], [IDL.Opt(IDL.Int)], ['query']),
+    getEscrowBalance: IDL.Func([IDL.Text, IDL.Principal], [IDL.Nat], []),
     logTamper: IDL.Func([IDL.Text, IDL.Text], [], ['query']),
   });
 };
@@ -585,6 +587,13 @@ headline.textContent = `Payment required: ${requiredBalanceIcp.toFixed(8)} ICP t
   );
   details.appendChild(walletBlock.wrapper);
 
+  const escrowBalance = await authedActor.getEscrowBalance(paywallId, identity.getPrincipal());
+  const escrowBlock = renderAccountBlock(
+    'Escrow (temporary hold)',
+    '—',
+    escrowBalance,
+  );
+  details.appendChild(escrowBlock.wrapper);
 
   const makePaymentBtn = document.createElement('button');
   makePaymentBtn.type = 'button';
@@ -614,7 +623,7 @@ headline.textContent = `Payment required: ${requiredBalanceIcp.toFixed(8)} ICP t
     try {
       const result = await authedActor.payFromBalance(paywallId);
       if ('Ok' in result) {
-        const confirmedAccess = await pollHasAccess(authedActor, identity.getPrincipal(), paywallId);
+        const confirmedAccess = await pollHasAccess(authedActor, identity.getPrincipal(), paywallId, 60, 800);
         if (confirmedAccess) {
           localStorage.setItem(getRecentPaymentKey(paywallId), Date.now().toString());
           reportPaymentSuccess(paywallId, identity.getPrincipal().toText());
@@ -626,7 +635,8 @@ headline.textContent = `Payment required: ${requiredBalanceIcp.toFixed(8)} ICP t
         alert('Payment succeeded but access is still syncing. Refresh the page.');
       } else {
         const msg = formatInsufficientBalanceMessage(result.Err || 'Unknown error');
-        alert(`Payment failed: ${msg}`);
+        alert(`Payment/settlement issue: ${msg}\n\nYour funds are SAFE in escrow!\n\nClick “Refund escrow” below (it now works reliably).`);
+        refreshButton.click();
       }
     } catch (error) {
       alert(`Payment error: ${formatErrorMessage(error, 'Unknown error')}`);
@@ -697,6 +707,8 @@ headline.textContent = `Payment required: ${requiredBalanceIcp.toFixed(8)} ICP t
       });
       walletInfo.balanceE8s = refreshedWallet;
       walletBlock.bal.textContent = `Balance: ${(Number(walletInfo.balanceE8s) / 100_000_000).toFixed(8)} ICP`;
+      const refreshedEscrow = await authedActor.getEscrowBalance(paywallId, identity.getPrincipal());
+      escrowBlock.bal.textContent = `Balance: ${(Number(refreshedEscrow) / 100_000_000).toFixed(8)} ICP`;
 
       updateActionArea();
     } catch (error) {
@@ -776,6 +788,8 @@ headline.textContent = `Payment required: ${requiredBalanceIcp.toFixed(8)} ICP t
           authedActor,
           identity.getPrincipal(),
           paywallId,
+          60,
+          800,
         );
         if (confirmedAccess) {
           localStorage.setItem(getRecentPaymentKey(paywallId), Date.now().toString());
@@ -787,7 +801,8 @@ headline.textContent = `Payment required: ${requiredBalanceIcp.toFixed(8)} ICP t
         }
         alert('Settlement succeeded, but access is still propagating. Please wait and refresh.');
       } else {
-        alert(`Settlement failed: ${result.Err}`);
+        alert(`Payment/settlement issue: ${result.Err}\n\nYour funds are SAFE in escrow!\n\nClick “Refund escrow” below (it now works reliably).`);
+        refreshButton.click();
       }
     } catch (error) {
       alert(`Settlement error: ${formatErrorMessage(error, 'Unknown error')}`);
@@ -809,7 +824,7 @@ headline.textContent = `Payment required: ${requiredBalanceIcp.toFixed(8)} ICP t
     try {
       const result = await authedActor.refundEscrow(paywallId);
       if ('Ok' in result) {
-        alert('Refund submitted. Click “Refresh balances”.');
+        alert('Refund submitted. Balances will refresh now.');
       } else {
         alert(`Refund failed: ${result.Err}`);
       }
@@ -818,6 +833,7 @@ headline.textContent = `Payment required: ${requiredBalanceIcp.toFixed(8)} ICP t
     } finally {
       refundEscrowButton.disabled = false;
       refundEscrowButton.textContent = 'Refund escrow';
+      refreshButton.click();
     }
   });
   advancedActions.appendChild(refundEscrowButton);
@@ -1287,13 +1303,13 @@ const run = async () => {
           const timestampStr = localStorage.getItem(key);
           if (timestampStr) {
             const timestamp = Number.parseInt(timestampStr, 10);
-            if (!Number.isNaN(timestamp) && Date.now() - timestamp < 60000) {
+            if (!Number.isNaN(timestamp) && Date.now() - timestamp < GRACE_PERIOD_MS) {
               hasAccess = await pollHasAccess(
                 authedActor,
                 identity.getPrincipal(),
                 paywallId,
-                20,
-                500,
+                60,
+                800,
               );
             } else {
               localStorage.removeItem(key);

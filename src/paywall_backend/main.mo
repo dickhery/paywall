@@ -584,6 +584,21 @@ persistent actor Paywall {
     escrowSubaccount : Blob,
     refundSubaccount : Blob,
   ) : async PaymentResult {
+    if (await hasAccess(caller, paywallId)) {
+      let leftover = await balanceOfSubaccount(escrowSubaccount);
+      if (leftover > icpTransferFee) {
+        ignore await ledger.icrc1_transfer({
+          to = { owner = Principal.fromActor(Paywall); subaccount = ?refundSubaccount };
+          amount = leftover - icpTransferFee;
+          from_subaccount = ?escrowSubaccount;
+          fee = ?icpTransferFee;
+          memo = null;
+          created_at_time = null;
+        });
+      };
+      return #Ok;
+    };
+
     let fee_e8s = calculateFee(config.price_e8s);
     if (config.price_e8s < fee_e8s) {
       return #Err("Paywall price is too low to cover the fee.");
@@ -658,7 +673,7 @@ persistent actor Paywall {
             from_subaccount = ?escrowSubaccount;
             fee = ?icpTransferFee;
             memo = ?Blob.fromArray([0x50, 0x41, 0x52, 0x54, 0x49, 0x41, 0x4C]); // "PARTIAL"
-            created_at_time = ?createdAtNow();
+            created_at_time = null;
           });
         };
         return #Err(
@@ -690,7 +705,7 @@ persistent actor Paywall {
         from_subaccount = ?escrowSubaccount;
         fee = ?icpTransferFee;
         memo = null;
-        created_at_time = ?createdAtNow();
+        created_at_time = null;
       });
     };
 
@@ -835,21 +850,19 @@ persistent actor Paywall {
 
     let balance = await balanceOfSubaccount(escrowSubaccount);
     if (balance <= icpTransferFee) {
-      return #Err("No refundable escrow balance available.");
+      return #Err(
+        "No refundable escrow balance available. Current balance: " # Nat.toText(balance) # " e8s",
+      );
     };
 
-    let amount : Nat = if (balance > icpTransferFee) {
-      balance - icpTransferFee;
-    } else {
-      0;
-    };
+    let amount : Nat = balance - icpTransferFee;
     let result = await ledger.icrc1_transfer({
       to = { owner = Principal.fromActor(Paywall); subaccount = ?userSubaccount };
       amount;
       from_subaccount = ?escrowSubaccount;
       fee = ?icpTransferFee;
       memo = null;
-      created_at_time = ?createdAtNow();
+      created_at_time = null;
     });
 
     switch (result) {
@@ -877,6 +890,11 @@ persistent actor Paywall {
         userMap.get(paywallId);
       };
     };
+  };
+
+  public shared func getEscrowBalance(paywallId : Text, user : Principal) : async Nat {
+    let escrowSubaccount = await deriveEscrowSubaccount(paywallId, user);
+    await balanceOfSubaccount(escrowSubaccount);
   };
 
   public query func getOwnedPaywalls(owner : Principal) : async [Text] {

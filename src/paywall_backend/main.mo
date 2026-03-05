@@ -683,7 +683,7 @@ persistent actor Paywall {
       case null {};
     };
 
-    let expiry = Time.now() + Int.fromNat(config.session_duration_ns);
+    let expiry = Time.now() + config.session_duration_ns;
     let userMap = switch (paidStatuses.get(caller)) {
       case (?existing) existing;
       case null {

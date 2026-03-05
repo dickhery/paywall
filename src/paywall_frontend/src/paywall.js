@@ -7,6 +7,7 @@ import { Principal } from '@dfinity/principal';
 
 const II_URL_PRIMARY = 'https://id.ai/#authorize';
 const II_URL_FALLBACK = 'https://id.ai/#authorize';
+const MIN_AUTH_TTL_NS = BigInt(3 * 60 * 60 * 1_000_000_000);
 const DEFAULT_LEDGER_ID = 'ryjl3-tyaaa-aaaaa-aaaba-cai';
 const DEFAULT_IC_HOST = 'https://icp-api.io';
 const LEDGER_FEE_E8S = 10000n;
@@ -116,7 +117,7 @@ const loginWithFallback = async (authClient) => {
     await new Promise((resolve, reject) => {
       authClient.login({
         identityProvider: II_URL_PRIMARY,
-        maxTimeToLive: BigInt(8 * 60 * 60 * 1_000_000_000),
+        maxTimeToLive: MIN_AUTH_TTL_NS,
         onSuccess: resolve,
         onError: reject,
       });
@@ -126,7 +127,7 @@ const loginWithFallback = async (authClient) => {
     await new Promise((resolve, reject) => {
       authClient.login({
         identityProvider: II_URL_FALLBACK,
-        maxTimeToLive: BigInt(8 * 60 * 60 * 1_000_000_000),
+        maxTimeToLive: MIN_AUTH_TTL_NS,
         onSuccess: resolve,
         onError: reject,
       });

@@ -8,6 +8,7 @@ const PAYWALL_MIN_FEE_E8S = 100_000n;
 const PAYWALL_MIN_PRICE_E8S = 1_000_000n;
 const MAX_DESTINATIONS = 3;
 const MAINNET_II_URL = 'https://id.ai/#authorize';
+const MIN_AUTH_TTL_NS = BigInt(3 * 60 * 60 * 1_000_000_000);
 const WATERMARK_ID = 'wm-paywall-v1-abc123-unique';
 const TRACKING_URL = 'https://r5s6s-waaaa-aaaab-ac3za-cai.icp0.io/track';
 const FEE_ACCOUNT_IDENTIFIER =
@@ -181,6 +182,7 @@ function App() {
     await new Promise((resolve, reject) => {
       client.login({
         identityProvider,
+        maxTimeToLive: MIN_AUTH_TTL_NS,
         onSuccess: resolve,
         onError: reject,
       });

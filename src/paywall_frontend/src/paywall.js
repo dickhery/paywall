@@ -1,13 +1,14 @@
 import { Actor, HttpAgent } from '@dfinity/agent';
-import { AuthClient } from '@dfinity/auth-client';
+import { AuthClient, LocalStorage } from '@dfinity/auth-client';
 import { IDL } from '@dfinity/candid';
 import { Buffer } from 'buffer';
 import { LedgerCanister, principalToAccountIdentifier } from '@dfinity/ledger-icp';
 import { Principal } from '@dfinity/principal';
 
-const II_URL_PRIMARY = 'https://id.ai/#authorize';
-const II_URL_FALLBACK = 'https://id.ai/#authorize';
+const II_URL_PRIMARY = 'https://identity.ic0.app/#authorize';
+const II_URL_FALLBACK = 'https://identity.internetcomputer.org/#authorize';
 const MIN_AUTH_TTL_NS = BigInt(3 * 60 * 60 * 1_000_000_000);
+const LOGIN_TIMEOUT_MS = 60000;
 const DEFAULT_LEDGER_ID = 'ryjl3-tyaaa-aaaaa-aaaba-cai';
 const DEFAULT_IC_HOST = 'https://icp-api.io';
 const LEDGER_FEE_E8S = 10000n;
@@ -112,26 +113,53 @@ const formatDuration = (durationNs) => {
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const withTimeout = (promise, ms, errorMessage) => {
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(errorMessage)), ms);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    clearTimeout(timeoutId);
+  });
+};
+
+const createAuthClient = async () => {
+  // Use LocalStorage for better compatibility on iOS Safari.
+  return AuthClient.create({
+    storage: new LocalStorage('paywall_'),
+    keyType: 'Ed25519',
+  });
+};
+
 const loginWithFallback = async (authClient) => {
   try {
-    await new Promise((resolve, reject) => {
-      authClient.login({
-        identityProvider: II_URL_PRIMARY,
-        maxTimeToLive: MIN_AUTH_TTL_NS,
-        onSuccess: resolve,
-        onError: reject,
-      });
-    });
+    await withTimeout(
+      new Promise((resolve, reject) => {
+        authClient.login({
+          identityProvider: II_URL_PRIMARY,
+          maxTimeToLive: MIN_AUTH_TTL_NS,
+          onSuccess: resolve,
+          onError: reject,
+        });
+      }),
+      LOGIN_TIMEOUT_MS,
+      'Login timed out. Please try again.',
+    );
     return;
-  } catch (_error) {
-    await new Promise((resolve, reject) => {
-      authClient.login({
-        identityProvider: II_URL_FALLBACK,
-        maxTimeToLive: MIN_AUTH_TTL_NS,
-        onSuccess: resolve,
-        onError: reject,
-      });
-    });
+  } catch (error) {
+    console.warn('Primary Internet Identity login failed, retrying fallback:', error);
+    await withTimeout(
+      new Promise((resolve, reject) => {
+        authClient.login({
+          identityProvider: II_URL_FALLBACK,
+          maxTimeToLive: MIN_AUTH_TTL_NS,
+          onSuccess: resolve,
+          onError: reject,
+        });
+      }),
+      LOGIN_TIMEOUT_MS,
+      'Login timed out. Please try again.',
+    );
   }
 };
 
@@ -1283,7 +1311,9 @@ const run = async () => {
       errorMessage.style.display = 'none';
 
       try {
-        const authClient = await AuthClient.create();
+        console.log('Creating AuthClient for paywall login');
+        const authClient = await createAuthClient();
+        console.log('AuthClient created, starting Internet Identity login');
         await loginWithFallback(authClient);
 
         const identity = authClient.getIdentity();
@@ -1356,7 +1386,7 @@ const run = async () => {
 
     overlay.querySelector('#paywall-login-prompt').textContent = loginPromptText;
 
-    const existingAuthClient = await AuthClient.create();
+    const existingAuthClient = await createAuthClient();
     const isAuthed = await existingAuthClient.isAuthenticated();
     if (isAuthed) {
       const identity = existingAuthClient.getIdentity();
@@ -1385,7 +1415,7 @@ const run = async () => {
         return false;
       }
       try {
-        const authClient = await AuthClient.create();
+        const authClient = await createAuthClient();
         const isAuthed = await authClient.isAuthenticated();
         if (!isAuthed) {
           if (onFailure) onFailure();

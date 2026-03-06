@@ -124,7 +124,6 @@ const withTimeout = (promise, ms, errorMessage) => {
 };
 
 const createAuthClient = async () => {
-  // Use LocalStorage for better compatibility on iOS Safari.
   return AuthClient.create({
     storage: new LocalStorage('paywall_'),
     keyType: 'Ed25519',
@@ -460,6 +459,7 @@ const buildOverlay = (onLogin) => {
   const overlay = document.createElement('div');
   overlay.style.cssText = OVERLAY_STYLE;
   overlay.id = 'ic-paywall-overlay';
+
   const panel = document.createElement('div');
   panel.style.cssText =
     'background:#111827;padding:32px 32px 24px;border-radius:16px;width:min(92vw,520px);max-height:90vh;overflow:auto;text-align:center;box-shadow:0 20px 40px rgba(0,0,0,0.45);';
@@ -611,8 +611,8 @@ const setupPaymentUI = async (
   };
 
   const headline = document.createElement('p');
-headline.style.cssText = 'margin:0 0 10px;font-size:18px;font-weight:700;';
-headline.textContent = `Payment required: ${requiredBalanceIcp.toFixed(8)} ICP total (price + fees)`;
+  headline.style.cssText = 'margin:0 0 10px;font-size:18px;font-weight:700;';
+  headline.textContent = `Payment required: ${requiredBalanceIcp.toFixed(8)} ICP total (price + fees)`;
   details.appendChild(headline);
 
   const breakdown = document.createElement('p');
@@ -662,7 +662,6 @@ headline.textContent = `Payment required: ${requiredBalanceIcp.toFixed(8)} ICP t
 
   const walletAccount = await authedActor.getUserAccount();
   const walletInfo = await getAccountInfo(walletAccount, 'wallet');
-
 
   const walletBlock = renderAccountBlock(
     'Your Paywall Wallet (deposit ICP here)',
@@ -736,19 +735,17 @@ headline.textContent = `Payment required: ${requiredBalanceIcp.toFixed(8)} ICP t
     'background:#16a34a;color:#fff;border:none;border-radius:12px;padding:14px 20px;font-size:16px;font-weight:600;cursor:pointer;width:100%;margin:16px 0 8px;min-height:52px;';
   makePaymentBtn.textContent = 'I have deposited – Unlock now';
 
-
   makePaymentBtn.addEventListener('click', async () => {
     const durationText = formatDuration(config.session_duration_ns);
-    const priceText = priceIcp.toFixed(8);
     const confirmMessage =
-    `You are about to be charged ${requiredBalanceIcp.toFixed(8)} ICP TOTAL from your paywall wallet balance.\n\n` +
-    `Breakdown:\n` +
-    `• Paywall price:          ${priceIcp.toFixed(8)} ICP\n` +
-    `• Ledger/network fees (est.): ${estimatedFeesIcp.toFixed(8)} ICP\n\n` +
-    `After successful settlement you will have access for ${durationText}.\n\n` +
-    '• Any extra ICP left in your wallet stays available for future payments.\n' +
-    '• If you have more ICP than you want to lock right now, withdraw it first.\n\n' +
-    'Ready to continue with payment?';
+      `You are about to be charged ${requiredBalanceIcp.toFixed(8)} ICP TOTAL from your paywall wallet balance.\n\n` +
+      `Breakdown:\n` +
+      `• Paywall price:          ${priceIcp.toFixed(8)} ICP\n` +
+      `• Ledger/network fees (est.): ${estimatedFeesIcp.toFixed(8)} ICP\n\n` +
+      `After successful settlement you will have access for ${durationText}.\n\n` +
+      '• Any extra ICP left in your wallet stays available for future payments.\n' +
+      '• If you have more ICP than you want to lock right now, withdraw it first.\n\n' +
+      'Ready to continue with payment?';
 
     if (!confirm(confirmMessage)) return;
 
@@ -915,7 +912,6 @@ headline.textContent = `Payment required: ${requiredBalanceIcp.toFixed(8)} ICP t
   });
   advancedActions.appendChild(withdrawButton);
 
-
   const retrySettleButton = document.createElement('button');
   retrySettleButton.textContent = 'Retry payment settlement';
   retrySettleButton.style.cssText =
@@ -961,7 +957,6 @@ headline.textContent = `Payment required: ${requiredBalanceIcp.toFixed(8)} ICP t
     }
   });
   advancedActions.appendChild(retrySettleButton);
-
 };
 
 const copyToClipboard = async (text) => {
@@ -1149,6 +1144,7 @@ const revealContent = (overlay) => {
     return;
   }
   overlay.remove();
+  window.forceClearPaywall?.();
   paywallActive = false;
   activeOverlay = null;
   if (overlay?.__onResize) {
@@ -1489,48 +1485,53 @@ const run = async () => {
 
 run();
 
-// === SECURE CLEANUP FOR SPA NAVIGATION (only works when leaving the room) ===
+// ==================== BULLETPROOF GLOBAL CLEANUP (NEW) ====================
+window.forceClearPaywall = () => {
+  try {
+    document.getElementById('ic-paywall-overlay')?.remove();
+    document
+      .querySelectorAll(
+        'div[style*="position:fixed"][style*="inset:0"][style*="z-index:999999999"]',
+      )
+      .forEach((el) => el.remove());
+
+    const body = document.body;
+    if (body) {
+      body.style.overflow = '';
+      body.style.filter = '';
+      body.style.transition = '';
+      body.style.pointerEvents = '';
+      body.style.userSelect = '';
+    }
+
+    paywallActive = false;
+    activeOverlay = null;
+    storedBodyStyles = null;
+    tamperDetected = false;
+    tamperReason = null;
+
+    if (overlayObserver) {
+      overlayObserver.disconnect();
+      overlayObserver = null;
+    }
+    if (tamperIntervalId) {
+      clearInterval(tamperIntervalId);
+      tamperIntervalId = null;
+    }
+
+    console.log('[IC Paywall] ✅ forceClearPaywall completed successfully');
+  } catch (e) {
+    console.warn('[IC Paywall] forceClearPaywall error (harmless):', e);
+  }
+};
+
+// Update the existing tryClearEmbedOverlay to use the new robust function
+const originalTryClear = window.tryClearEmbedOverlay;
 window.tryClearEmbedOverlay = () => {
-  // SECURITY GATE: Never allow cleanup while still on a protected room page
   if (window.location.pathname.includes('/room/')) {
     console.warn('[IC Paywall] Cleanup blocked on room page');
-    // Optional: treat as tamper attempt
-    if (typeof markTamper === 'function') markTamper('Illicit cleanup attempt');
     return false;
   }
-
-  // Normal cleanup path (only runs on home page / after navigation)
-  if (typeof revealContent === 'function' && activeOverlay) {
-    revealContent(activeOverlay);
-    return true;
-  }
-
-  // Fallback manual cleanup (in case state is partially lost)
-  const panel = document.getElementById('paywall-panel');
-  if (panel) {
-    const overlay = panel.parentElement;
-    if (overlay && overlay.style.position === 'fixed') overlay.remove();
-  }
-  // Restore body exactly like the original restoreContent()
-  if (storedBodyStyles) {
-    document.body.style.overflow = storedBodyStyles.overflow || '';
-    document.body.style.filter = storedBodyStyles.filter || '';
-    document.body.style.transition = storedBodyStyles.transition || '';
-    storedBodyStyles = null;
-  } else {
-    document.body.style.overflow = '';
-    document.body.style.filter = '';
-    document.body.style.transition = '';
-    document.body.style.pointerEvents = '';
-    document.body.style.userSelect = '';
-  }
-  stopOverlayObservers();
-  stopTamperChecks();
-  paywallActive = false;
-  activeOverlay = null;
-  if (tamperIntervalId) {
-    clearInterval(tamperIntervalId);
-    tamperIntervalId = null;
-  }
+  window.forceClearPaywall?.();
   return true;
 };

@@ -459,6 +459,7 @@ const stopTamperChecks = () => {
 const buildOverlay = (onLogin) => {
   const overlay = document.createElement('div');
   overlay.style.cssText = OVERLAY_STYLE;
+  overlay.id = 'ic-paywall-overlay';
   const panel = document.createElement('div');
   panel.style.cssText =
     'background:#111827;padding:32px 32px 24px;border-radius:16px;width:min(92vw,520px);max-height:90vh;overflow:auto;text-align:center;box-shadow:0 20px 40px rgba(0,0,0,0.45);';
@@ -1487,3 +1488,49 @@ const run = async () => {
 };
 
 run();
+
+// === SECURE CLEANUP FOR SPA NAVIGATION (only works when leaving the room) ===
+window.tryClearEmbedOverlay = () => {
+  // SECURITY GATE: Never allow cleanup while still on a protected room page
+  if (window.location.pathname.includes('/room/')) {
+    console.warn('[IC Paywall] Cleanup blocked on room page');
+    // Optional: treat as tamper attempt
+    if (typeof markTamper === 'function') markTamper('Illicit cleanup attempt');
+    return false;
+  }
+
+  // Normal cleanup path (only runs on home page / after navigation)
+  if (typeof revealContent === 'function' && activeOverlay) {
+    revealContent(activeOverlay);
+    return true;
+  }
+
+  // Fallback manual cleanup (in case state is partially lost)
+  const panel = document.getElementById('paywall-panel');
+  if (panel) {
+    const overlay = panel.parentElement;
+    if (overlay && overlay.style.position === 'fixed') overlay.remove();
+  }
+  // Restore body exactly like the original restoreContent()
+  if (storedBodyStyles) {
+    document.body.style.overflow = storedBodyStyles.overflow || '';
+    document.body.style.filter = storedBodyStyles.filter || '';
+    document.body.style.transition = storedBodyStyles.transition || '';
+    storedBodyStyles = null;
+  } else {
+    document.body.style.overflow = '';
+    document.body.style.filter = '';
+    document.body.style.transition = '';
+    document.body.style.pointerEvents = '';
+    document.body.style.userSelect = '';
+  }
+  stopOverlayObservers();
+  stopTamperChecks();
+  paywallActive = false;
+  activeOverlay = null;
+  if (tamperIntervalId) {
+    clearInterval(tamperIntervalId);
+    tamperIntervalId = null;
+  }
+  return true;
+};

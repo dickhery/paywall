@@ -1164,9 +1164,20 @@ const run = async () => {
     const paywallUrl = scriptSrc ? new URL(scriptSrc) : null;
     const paywallId = paywallUrl?.searchParams.get('paywallId');
     if (!paywallId) return;
-    initSessionTracker();
+
     const backendId =
       scriptTag.dataset.backendId || window.PAYWALL_BACKEND_ID || '';
+
+    // NEW: Support forced re-initialization from the main app (for SPA room re-entry)
+    const url = new URL(scriptTag.src);
+    const forceReinit = url.searchParams.get('forceReinit') === 'true';
+    const forceReinitInstanceKey = `__ic_paywall__${backendId}__${paywallId}`;
+    if (forceReinit) {
+      delete window.__ic_paywall_instances?.[forceReinitInstanceKey];
+      console.log('[IC Paywall] forceReinit=true — singleton guard bypassed for room re-entry');
+    }
+
+    initSessionTracker();
     const ledgerId =
       scriptTag.dataset.ledgerId ||
       window.PAYWALL_LEDGER_ID ||
@@ -1519,6 +1530,15 @@ window.forceClearPaywall = () => {
       tamperIntervalId = null;
     }
 
+    if (overlayObserver) {
+      overlayObserver.disconnect();
+      overlayObserver = null;
+    }
+    if (tamperIntervalId) {
+      clearInterval(tamperIntervalId);
+      tamperIntervalId = null;
+    }
+
     console.log('[IC Paywall] ✅ forceClearPaywall completed successfully');
   } catch (e) {
     console.warn('[IC Paywall] forceClearPaywall error (harmless):', e);
@@ -1534,4 +1554,13 @@ window.tryClearEmbedOverlay = () => {
   }
   window.forceClearPaywall?.();
   return true;
+};
+
+// NEW: Public API for the main CineRooms app to force a fresh paywall instance on every room entry
+window.reinitializePaywall = (backendId, paywallId) => {
+  if (!backendId || !paywallId) return;
+  const key = `__ic_paywall__${backendId}__${paywallId}`;
+  delete window.__ic_paywall_instances?.[key];
+  window.forceClearPaywall?.();
+  console.log(`[IC Paywall] reinitializePaywall called for paywall ${paywallId}`);
 };

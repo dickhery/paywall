@@ -618,18 +618,6 @@ const setupPaymentUI = async (
     return { wrapper, bal };
   };
 
-  const headline = document.createElement('p');
-  headline.style.cssText = 'margin:0 0 10px;font-size:18px;font-weight:700;';
-  headline.textContent = `Payment required: ${formatIcp(requiredBalanceE8s)} ICP total (price + fees)`;
-  details.appendChild(headline);
-
-  const breakdown = document.createElement('p');
-  breakdown.style.cssText = 'margin:0 0 12px;color:#d1d5db;';
-  breakdown.textContent =
-    `Includes price (${formatIcp(priceE8s)} ICP) + estimated network fees ` +
-    `(${formatIcp(LEDGER_FEE_E8S * ledgerFeeCount)} ICP).`;
-  details.appendChild(breakdown);
-
   const promptLine = document.createElement('p');
   promptLine.style.cssText = 'margin:0 0 14px;';
   promptLine.textContent = paymentPromptText;
@@ -654,7 +642,7 @@ const setupPaymentUI = async (
     • <strong>Retry payment settlement</strong>: Retries moving escrowed funds to the paywall owner if settlement got stuck.<br>
     • <strong>Refund escrow</strong>: Sends escrowed funds back to your wallet balance.<br>
     • <strong>Withdraw from wallet balance</strong>: Transfer wallet funds to another account/principal.<br><br>
-    Network transfer fees are included in the total required ICP shown above.
+    Network transfer fees are shown in the payment confirmation before settlement.
   `;
 
   guideBtn.addEventListener('click', () => {
@@ -682,6 +670,7 @@ const setupPaymentUI = async (
   const escrowWrapper = document.createElement('div');
   escrowWrapper.style.cssText =
     'margin:12px 0;padding:12px;border:1px solid rgba(255,255,255,0.12);border-radius:12px;background:rgba(255,255,255,0.04);';
+  escrowWrapper.style.display = 'none';
 
   const escrowHeader = document.createElement('p');
   escrowHeader.style.cssText = 'margin:0 0 8px;font-weight:700;';
@@ -708,9 +697,10 @@ const setupPaymentUI = async (
   const updateEscrowUi = (balanceE8s) => {
     escrowBalanceE8s = balanceE8s;
     escrowBal.textContent = `Balance: ${formatIcp(escrowBalanceE8s)} ICP`;
-    const showRefund = escrowBalanceE8s > LEDGER_FEE_E8S;
-    escrowRefundNote.style.display = showRefund ? 'block' : 'none';
-    escrowRefundButton.style.display = showRefund ? 'block' : 'none';
+    const showEscrow = escrowBalanceE8s > LEDGER_FEE_E8S;
+    escrowWrapper.style.display = showEscrow ? 'block' : 'none';
+    escrowRefundNote.style.display = showEscrow ? 'block' : 'none';
+    escrowRefundButton.style.display = showEscrow ? 'block' : 'none';
   };
 
   escrowRefundButton.addEventListener('click', async () => {

@@ -620,14 +620,14 @@ const setupPaymentUI = async (
 
   const headline = document.createElement('p');
   headline.style.cssText = 'margin:0 0 10px;font-size:18px;font-weight:700;';
-  headline.textContent = `Payment required: ${requiredBalanceIcp.toFixed(8)} ICP total (price + fees)`;
+  headline.textContent = `Payment required: ${formatIcp(requiredBalanceE8s)} ICP total (price + fees)`;
   details.appendChild(headline);
 
   const breakdown = document.createElement('p');
   breakdown.style.cssText = 'margin:0 0 12px;color:#d1d5db;';
   breakdown.textContent =
-    `Includes price (${priceIcp.toFixed(8)} ICP) + estimated network fees ` +
-    `(${estimatedFeesIcp.toFixed(8)} ICP).`;
+    `Includes price (${formatIcp(priceE8s)} ICP) + estimated network fees ` +
+    `(${formatIcp(LEDGER_FEE_E8S * ledgerFeeCount)} ICP).`;
   details.appendChild(breakdown);
 
   const promptLine = document.createElement('p');
@@ -1214,7 +1214,10 @@ const run = async () => {
     if (!config || typeof config.price_e8s === 'undefined') return;
 
     const priceE8s = BigInt(config.price_e8s);
-    const formattedPrice = formatIcp(priceE8s);
+    const destinationCount = config.destinations?.length ?? 0;
+    const ledgerFeeCount = BigInt(destinationCount + 2);
+    const totalRequiredE8s = priceE8s + LEDGER_FEE_E8S * ledgerFeeCount;
+    const formattedPrice = formatIcp(totalRequiredE8s);
     const loginPromptText =
       config.login_prompt_text?.[0]?.trim() || 'Log in to check access.';
 

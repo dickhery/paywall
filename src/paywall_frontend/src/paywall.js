@@ -703,7 +703,21 @@ const setupPaymentUI = async (
     escrowRefundButton.style.display = showEscrow ? 'block' : 'none';
   };
 
+  const disableRefundDuringPayment = () => {
+    escrowRefundButton.disabled = true;
+    escrowRefundButton.style.opacity = '0.5';
+    escrowRefundButton.textContent = 'Payment in progress...';
+  };
+
+  const enableRefund = () => {
+    escrowRefundButton.disabled = false;
+    escrowRefundButton.style.opacity = '1';
+    escrowRefundButton.textContent = 'Refund escrow';
+  };
+
   escrowRefundButton.addEventListener('click', async () => {
+    if (escrowRefundButton.disabled) return;
+
     if (!confirm('Refund all escrow back to your Paywall wallet balance?')) return;
 
     escrowRefundButton.disabled = true;
@@ -749,6 +763,7 @@ const setupPaymentUI = async (
 
     makePaymentBtn.disabled = true;
     makePaymentBtn.textContent = 'Processing payment…';
+    disableRefundDuringPayment();
 
     try {
       const result = await authedActor.payFromBalance(paywallId);
@@ -780,6 +795,7 @@ const setupPaymentUI = async (
     } finally {
       makePaymentBtn.disabled = false;
       makePaymentBtn.textContent = 'I have deposited – Unlock now';
+      enableRefund();
       updateActionArea();
     }
   });
@@ -917,6 +933,7 @@ const setupPaymentUI = async (
   retrySettleButton.addEventListener('click', async () => {
     retrySettleButton.disabled = true;
     retrySettleButton.textContent = 'Retrying...';
+    disableRefundDuringPayment();
     try {
       const result = await authedActor.settleEscrow(paywallId);
       if ('Ok' in result) {
@@ -952,6 +969,7 @@ const setupPaymentUI = async (
     } finally {
       retrySettleButton.disabled = false;
       retrySettleButton.textContent = 'Retry payment settlement';
+      enableRefund();
     }
   });
   advancedActions.appendChild(retrySettleButton);

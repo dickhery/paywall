@@ -179,6 +179,7 @@ persistent actor Paywall {
   var paywallConfigEntries : [(Text, PaywallConfigStable)] = [];
   var paidStatusEntries : [(Principal, [(Text, Int)])] = [];
   var ownedPaywallsEntries : [(Principal, [Text])] = [];
+  var paymentLocksEntries : [(Text, Int)] = [];
   var nextPaywallId : Nat = 0;
   var salt : [Nat8] = [];
 
@@ -233,6 +234,9 @@ persistent actor Paywall {
     Principal.hash,
   );
   transient var ownedPaywalls = HashMap.HashMap<Principal, [Text]>(0, Principal.equal, Principal.hash);
+  transient var paymentLocks = HashMap.HashMap<Text, Int>(0, Text.equal, Text.hash);
+
+  let paymentLockTimeoutNs : Int = 300_000_000_000;
 
   system func preupgrade() {
     paywallConfigEntries := Iter.toArray(
@@ -274,6 +278,7 @@ persistent actor Paywall {
         },
       ),
     );
+    paymentLocksEntries := Iter.toArray(paymentLocks.entries());
   };
 
   system func postupgrade() {
@@ -319,6 +324,30 @@ persistent actor Paywall {
     for ((owner, ids) in ownedPaywallsEntries.vals()) {
       ownedPaywalls.put(owner, ids);
     };
+
+    paymentLocks := HashMap.HashMap<Text, Int>(paymentLocksEntries.size(), Text.equal, Text.hash);
+    for ((key, timestamp) in paymentLocksEntries.vals()) {
+      paymentLocks.put(key, timestamp);
+    };
+  };
+
+  private func lockKey(paywallId : Text, user : Principal) : Text {
+    paywallId # "|" # Principal.toText(user);
+  };
+
+  private func isPaymentInProgress(paywallId : Text, user : Principal) : Bool {
+    switch (paymentLocks.get(lockKey(paywallId, user))) {
+      case null false;
+      case (?lockedAt) { Time.now() - lockedAt < paymentLockTimeoutNs };
+    };
+  };
+
+  private func setPaymentLock(paywallId : Text, user : Principal) : () {
+    paymentLocks.put(lockKey(paywallId, user), Time.now());
+  };
+
+  private func clearPaymentLock(paywallId : Text, user : Principal) : () {
+    paymentLocks.delete(lockKey(paywallId, user));
   };
 
   private func getSalt() : async Blob {
@@ -584,6 +613,12 @@ persistent actor Paywall {
     escrowSubaccount : Blob,
     refundSubaccount : Blob,
   ) : async PaymentResult {
+    if (isPaymentInProgress(paywallId, caller)) {
+      return #Err("Payment already in progress for this paywall. Please wait.");
+    };
+
+    setPaymentLock(paywallId, caller);
+
     if (hasAccessAt(caller, paywallId, Time.now())) {
       let leftover = await balanceOfSubaccount(escrowSubaccount);
       if (leftover > icpTransferFee) {
@@ -596,11 +631,13 @@ persistent actor Paywall {
           created_at_time = null;
         });
       };
+      clearPaymentLock(paywallId, caller);
       return #Ok;
     };
 
     let fee_e8s = calculateFee(config.price_e8s);
     if (config.price_e8s < fee_e8s) {
+      clearPaymentLock(paywallId, caller);
       return #Err("Paywall price is too low to cover the fee.");
     };
 
@@ -608,6 +645,7 @@ persistent actor Paywall {
     let requiredEscrow : Nat = config.price_e8s + (icpTransferFee * outgoingTransfers);
     let escrowBalance = await balanceOfSubaccount(escrowSubaccount);
     if (escrowBalance < requiredEscrow) {
+      clearPaymentLock(paywallId, caller);
       return #Err(
         "Escrow balance insufficient: have " # Nat.toText(escrowBalance) #
         ", need " # Nat.toText(requiredEscrow),
@@ -616,11 +654,15 @@ persistent actor Paywall {
 
     let feeResult = await sendFee(fee_e8s, ?escrowSubaccount);
     switch (feeResult) {
-      case (#Err(message)) { return #Err(message) };
+      case (#Err(message)) {
+        clearPaymentLock(paywallId, caller);
+        return #Err(message);
+      };
       case (#Ok) {};
     };
 
     if (config.destinations.size() == 0) {
+      clearPaymentLock(paywallId, caller);
       return #Err("No payment destinations configured for this paywall.");
     };
 
@@ -676,6 +718,7 @@ persistent actor Paywall {
             created_at_time = null;
           });
         };
+        clearPaymentLock(paywallId, caller);
         return #Err(
           "Settlement partially failed and remaining escrow was refunded. Error: " # message,
         );
@@ -709,6 +752,7 @@ persistent actor Paywall {
       });
     };
 
+    clearPaymentLock(paywallId, caller);
     #Ok;
   };
 
@@ -845,6 +889,13 @@ persistent actor Paywall {
 
   public shared(msg) func refundEscrow(paywallId : Text) : async PaymentResult {
     let caller = msg.caller;
+
+    if (isPaymentInProgress(paywallId, caller)) {
+      return #Err(
+        "Cannot refund escrow while a payment is being processed. Please wait or use \"Retry payment settlement\".",
+      );
+    };
+
     let userSubaccount = await deriveUserSubaccount(caller);
     let escrowSubaccount = await deriveEscrowSubaccount(paywallId, caller);
 

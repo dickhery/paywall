@@ -78,6 +78,8 @@ function App() {
   const [destinations, setDestinations] = useState([
     { input: '', percentage: 100, convertToCycles: false, isPrincipal: true },
   ]);
+  const [createExpanded, setCreateExpanded] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const [paywallId, setPaywallId] = useState('');
   const [ownedPaywalls, setOwnedPaywalls] = useState([]);
@@ -105,6 +107,19 @@ function App() {
     if (createPriceE8s <= createFeeE8s) return 0n;
     return createPriceE8s - createFeeE8s;
   }, [createFeeE8s, createPriceE8s]);
+
+  const filteredOwnedPaywalls = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return ownedPaywalls;
+    return ownedPaywalls.filter((id) => {
+      const config = paywallConfigs[id];
+      if (!config) return false;
+      return (
+        id.toLowerCase().includes(term)
+        || config.target_url.toLowerCase().includes(term)
+      );
+    });
+  }, [ownedPaywalls, paywallConfigs, searchTerm]);
 
   const editPriceE8s = useMemo(() => toE8s(editPriceIcp), [editPriceIcp]);
   const editFeeE8s = useMemo(
@@ -715,7 +730,15 @@ function App() {
         <>
           <section className="card">
             <h2>Create a paywall</h2>
-            <form className="form" onSubmit={handleCreatePaywall}>
+            <button
+              type="button"
+              className="create-toggle-btn"
+              onClick={() => setCreateExpanded((current) => !current)}
+            >
+              {createExpanded ? 'Hide create form' : 'Create new paywall'}
+            </button>
+            {createExpanded && (
+              <form className="form" onSubmit={handleCreatePaywall}>
               <label>
                 Price (ICP)
                 <span className="hint">
@@ -966,7 +989,8 @@ function App() {
                 {Number(ICP_TRANSFER_FEE_E8S) / 100_000_000} ICP.
               </p>
               <button type="submit">Create paywall</button>
-            </form>
+              </form>
+            )}
 
             {paywallId && (
               <div className="result">
@@ -1009,11 +1033,22 @@ function App() {
 
           <section className="card">
             <h2>My paywalls</h2>
+            {ownedPaywalls.length > 0 && (
+              <input
+                type="text"
+                placeholder="Search by URL or paywall ID..."
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                className="search-input"
+              />
+            )}
             {ownedPaywalls.length === 0 ? (
               <p>No paywalls created yet.</p>
+            ) : filteredOwnedPaywalls.length === 0 ? (
+              <p className="hint">No paywalls match your search.</p>
             ) : (
               <ul className="list">
-                {ownedPaywalls.map((id) => {
+                {filteredOwnedPaywalls.map((id) => {
                   const config = paywallConfigs[id];
                   if (!config) return null;
                   const isExpanded = expandedPaywalls.has(id);

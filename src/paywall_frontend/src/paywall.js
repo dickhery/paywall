@@ -1208,6 +1208,8 @@ const run = async () => {
 
     const instanceKey = `__ic_paywall__${backendId}__${paywallId}`;
     window.__ic_paywall_instances = window.__ic_paywall_instances || {};
+    window.__ic_paywall_timers = window.__ic_paywall_timers || {};
+    const timerKey = `__timer_${backendId}_${paywallId}`;
     if (window.__ic_paywall_instances[instanceKey]) {
       console.warn('IC Paywall already initialized for this paywall on this page. Skipping.');
       return;
@@ -1246,17 +1248,14 @@ const run = async () => {
         clearInterval(accessIntervalId);
         accessIntervalId = null;
       }
+      delete window.__ic_paywall_timers[timerKey];
     };
 
     const scheduleAccessTimers = async (authedActor, identity) => {
       clearAccessTimers();
       try {
         const principal = identity.getPrincipal();
-        const expiryResponse = await tryGetMyExpiry(
-          authedActor,
-          principal,
-          paywallId,
-        );
+        const expiryResponse = await tryGetMyExpiry(authedActor, principal, paywallId);
         const expiryNs = expiryResponse?.[0] || readLocalExpiry(paywallId);
         if (expiryNs) writeLocalExpiry(paywallId, expiryNs);
         if (expiryNs) {
@@ -1264,10 +1263,13 @@ const run = async () => {
           const remainingNs = expiryNs - nowNs;
           if (remainingNs > 0n) {
             let remainingMs = Number(remainingNs / 1_000_000n);
-            if (remainingMs > Number.MAX_SAFE_INTEGER) {
-              remainingMs = Number.MAX_SAFE_INTEGER;
-            }
+            if (remainingMs > Number.MAX_SAFE_INTEGER) remainingMs = Number.MAX_SAFE_INTEGER;
             accessTimeoutId = setTimeout(() => {
+              // SAFETY GUARD: only show if THIS paywall's script is still on the page
+              if (!document.querySelector(`script[data-paywall][src*="${paywallId}"]`)) {
+                clearAccessTimers();
+                return;
+              }
               void showPaywall(authedActor, identity);
             }, remainingMs);
           }
@@ -1278,6 +1280,11 @@ const run = async () => {
 
       let failureStreak = 0;
       accessIntervalId = setInterval(async () => {
+        // SAFETY GUARD
+        if (!document.querySelector(`script[data-paywall][src*="${paywallId}"]`)) {
+          clearAccessTimers();
+          return;
+        }
         try {
           const principal = identity.getPrincipal();
           const stillHasAccessQuery = await authedActor.hasAccess(principal, paywallId);
@@ -1289,8 +1296,7 @@ const run = async () => {
           const stillHasAccessFresh = await tryHasMyAccess(authedActor, principal, paywallId);
           if (stillHasAccessFresh) {
             const expiryResponse = await tryGetMyExpiry(authedActor, principal, paywallId);
-            const expiryNs = expiryResponse?.[0];
-            if (expiryNs) writeLocalExpiry(paywallId, expiryNs);
+            if (expiryResponse?.[0]) writeLocalExpiry(paywallId, expiryResponse[0]);
             failureStreak = 0;
             return;
           }
@@ -1310,9 +1316,9 @@ const run = async () => {
         }
       }, PERIODIC_CHECK_INTERVAL_MS);
 
-      window.addEventListener('beforeunload', () => {
-        clearAccessTimers();
-      });
+      window.__ic_paywall_timers[timerKey] = { timeout: accessTimeoutId, interval: accessIntervalId };
+
+      window.addEventListener('beforeunload', () => clearAccessTimers());
     };
 
     const showPaywall = async (authedActor, identity) => {
@@ -1538,6 +1544,15 @@ window.forceClearPaywall = () => {
       body.style.userSelect = '';
     }
 
+    // Kill ALL timers from ANY paywall
+    if (window.__ic_paywall_timers) {
+      Object.values(window.__ic_paywall_timers).forEach((t) => {
+        if (t.timeout) clearTimeout(t.timeout);
+        if (t.interval) clearInterval(t.interval);
+      });
+      window.__ic_paywall_timers = {};
+    }
+
     paywallActive = false;
     activeOverlay = null;
     storedBodyStyles = null;
@@ -1553,16 +1568,7 @@ window.forceClearPaywall = () => {
       tamperIntervalId = null;
     }
 
-    if (overlayObserver) {
-      overlayObserver.disconnect();
-      overlayObserver = null;
-    }
-    if (tamperIntervalId) {
-      clearInterval(tamperIntervalId);
-      tamperIntervalId = null;
-    }
-
-    console.log('[IC Paywall] ✅ forceClearPaywall completed successfully');
+    console.log('[IC Paywall] ✅ forceClearPaywall completed (timers killed)');
   } catch (e) {
     console.warn('[IC Paywall] forceClearPaywall error (harmless):', e);
   }

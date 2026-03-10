@@ -69,6 +69,7 @@ function App() {
 
   const [priceIcp, setPriceIcp] = useState('0.1');
   const [targetUrl, setTargetUrl] = useState('');
+  const [sessionYears, setSessionYears] = useState('0');
   const [sessionDays, setSessionDays] = useState('0');
   const [sessionHours, setSessionHours] = useState('1');
   const [sessionMinutes, setSessionMinutes] = useState('0');
@@ -90,6 +91,7 @@ function App() {
   const [editingId, setEditingId] = useState(null);
   const [editPriceIcp, setEditPriceIcp] = useState('');
   const [editTargetUrl, setEditTargetUrl] = useState('');
+  const [editSessionYears, setEditSessionYears] = useState('');
   const [editSessionDays, setEditSessionDays] = useState('');
   const [editSessionHours, setEditSessionHours] = useState('');
   const [editSessionMinutes, setEditSessionMinutes] = useState('');
@@ -291,6 +293,7 @@ function App() {
     }
 
     const totalSeconds =
+      parseDurationPart(sessionYears) * 31_536_000 +
       parseDurationPart(sessionDays) * 86400 +
       parseDurationPart(sessionHours) * 3600 +
       parseDurationPart(sessionMinutes) * 60 +
@@ -482,14 +485,16 @@ function App() {
     setEditPriceIcp((Number(config.price_e8s) / 100_000_000).toString());
     setEditTargetUrl(config.target_url);
     const totalSeconds = Number(config.session_duration_ns) / 1_000_000_000;
-    setEditSessionDays(Math.floor(totalSeconds / 86400).toString());
+    setEditSessionYears(Math.floor(totalSeconds / 31_536_000).toString());
+    const remainingAfterYears = totalSeconds % 31_536_000;
+    setEditSessionDays(Math.floor(remainingAfterYears / 86400).toString());
     setEditSessionHours(
-      Math.floor((totalSeconds % 86400) / 3600).toString(),
+      Math.floor((remainingAfterYears % 86400) / 3600).toString(),
     );
     setEditSessionMinutes(
-      Math.floor(((totalSeconds % 86400) % 3600) / 60).toString(),
+      Math.floor(((remainingAfterYears % 86400) % 3600) / 60).toString(),
     );
-    setEditSessionSeconds(((totalSeconds % 86400) % 60).toString());
+    setEditSessionSeconds(((remainingAfterYears % 86400) % 60).toString());
     setEditLoginPromptText(config.login_prompt_text?.[0] || '');
     setEditPaymentPromptText(config.payment_prompt_text?.[0] || '');
     const mappedDestinations = config.destinations.map((destination) => {
@@ -588,6 +593,7 @@ function App() {
     }
 
     const totalSeconds =
+      parseDurationPart(editSessionYears) * 31_536_000 +
       parseDurationPart(editSessionDays) * 86400 +
       parseDurationPart(editSessionHours) * 3600 +
       parseDurationPart(editSessionMinutes) * 60 +
@@ -904,10 +910,21 @@ function App() {
               <div className="form-field">
                 <span>Session duration</span>
                 <span className="hint">
-                  Set how long access lasts after payment in days, hours,
-                  minutes, and seconds.
+                  Set how long access lasts after payment (years, days, hours,
+                  minutes, and seconds).
                 </span>
                 <div className="time-inputs">
+                  <label>
+                    Years
+                    <input
+                      type="number"
+                      min="0"
+                      value={sessionYears}
+                      onChange={(event) => setSessionYears(event.target.value)}
+                      placeholder="Years"
+                      required
+                    />
+                  </label>
                   <label>
                     Days
                     <input
@@ -1058,13 +1075,15 @@ function App() {
                   const price = Number(config.price_e8s) / 100_000_000;
                   const durationSeconds =
                     Number(config.session_duration_ns) / 1_000_000_000;
-                  const days = Math.floor(durationSeconds / 86400);
-                  const hours = Math.floor((durationSeconds % 86400) / 3600);
+                  const years = Math.floor(durationSeconds / 31_536_000);
+                  const remainingAfterYears = durationSeconds % 31_536_000;
+                  const days = Math.floor(remainingAfterYears / 86400);
+                  const hours = Math.floor((remainingAfterYears % 86400) / 3600);
                   const minutes = Math.floor(
-                    ((durationSeconds % 86400) % 3600) / 60,
+                    ((remainingAfterYears % 86400) % 3600) / 60,
                   );
                   const seconds = Math.floor(
-                    (durationSeconds % 86400) % 60,
+                    (remainingAfterYears % 86400) % 60,
                   );
                   return (
                     <li
@@ -1102,7 +1121,10 @@ function App() {
                             <strong>Target URL:</strong> {config.target_url}
                           </p>
                           <p>
-                            <strong>Session Duration:</strong> {days}d {hours}h{' '}
+                            <strong>Session Duration:</strong>{' '}
+                            {years > 0 ? `${years}y ` : ''}
+                            {days > 0 || years > 0 ? `${days}d ` : ''}
+                            {hours > 0 || days > 0 || years > 0 ? `${hours}h ` : ''}
                             {minutes}m {seconds}s
                           </p>
                           <p>
@@ -1312,10 +1334,23 @@ function App() {
                               <div className="form-field">
                                 <span>Edit Session Duration</span>
                                 <span className="hint">
-                                  Update the access window in days, hours, minutes,
-                                  and seconds.
+                                  Update the access window (years, days, hours,
+                                  minutes, and seconds).
                                 </span>
                                 <div className="time-inputs">
+                                  <label>
+                                    Years
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={editSessionYears}
+                                      onChange={(event) =>
+                                        setEditSessionYears(event.target.value)
+                                      }
+                                      placeholder="Years"
+                                      required
+                                    />
+                                  </label>
                                   <label>
                                     Days
                                     <input

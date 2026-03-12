@@ -528,9 +528,16 @@ const setupPaymentUI = async (
   ledgerId,
   onAccessGranted,
 ) => {
-  const details = overlay.querySelector('#paywall-details');
-  details.style.display = 'block';
-  details.innerHTML = '';
+  if (overlay.__setupPaymentUiPromise) {
+    await overlay.__setupPaymentUiPromise;
+    return;
+  }
+
+  overlay.__setupPaymentUiPromise = (async () => {
+    const details = overlay.querySelector('#paywall-details');
+    if (!details) return;
+    details.style.display = 'block';
+    details.innerHTML = '';
 
   const priceE8s = BigInt(config.price_e8s);
   const destinationCount = config.destinations?.length ?? 0;
@@ -974,7 +981,14 @@ const setupPaymentUI = async (
       enableRefund();
     }
   });
-  advancedActions.appendChild(retrySettleButton);
+    advancedActions.appendChild(retrySettleButton);
+  })();
+
+  try {
+    await overlay.__setupPaymentUiPromise;
+  } finally {
+    overlay.__setupPaymentUiPromise = null;
+  }
 };
 
 const copyToClipboard = async (text) => {
@@ -1423,9 +1437,12 @@ const run = async () => {
     showOverlay(overlay);
 
     const verifyVisibilityAccess = async () => {
-      if (document.visibilityState !== 'visible' || !paywallActive) return;
+      if (document.visibilityState !== 'visible' || paywallActive) return;
       const authClient = await createAuthClient();
-      if (!(await authClient.isAuthenticated())) return;
+      if (!(await authClient.isAuthenticated())) {
+        await showOverlay(overlay);
+        return;
+      }
       const identity = authClient.getIdentity();
       const handshakeAgent = new HttpAgent({ host: icHost });
       handshakeAgent.replaceIdentity(identity);
@@ -1452,7 +1469,7 @@ const run = async () => {
       document.dispatchEvent(new Event('visibilitychange')),
     );
 
-    const verifyAndHideIfValid = async () => {
+    const verifyAndInitialize = async () => {
       try {
         const authClient = await createAuthClient();
         const isAuthed = await authClient.isAuthenticated();
@@ -1475,14 +1492,29 @@ const run = async () => {
           if (hasAccess) {
             revealContent(overlay);
             await scheduleAccessTimers(authedActor, identity);
+            return;
           }
+
+          removeLoginControls(overlay);
+          await setupPaymentUI(
+            overlay,
+            authedActor,
+            identity,
+            config,
+            paywallId,
+            agent,
+            ledgerId,
+            async () => {
+              await scheduleAccessTimers(authedActor, identity);
+            },
+          );
         }
       } catch (error) {
         console.warn('Initial verification failed (overlay stays visible):', error);
       }
     };
 
-    void verifyAndHideIfValid();
+    void verifyAndInitialize();
 
     window.paywallHandshake = async (onFailure) => {
       if (tamperDetected) {

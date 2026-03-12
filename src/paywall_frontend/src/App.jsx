@@ -426,6 +426,7 @@ function App() {
         `- Install only the necessary things mentioned above; nothing else.\n` +
         `- Do not block existing layout, ads, or app scripts; the paywall script handles the overlay and checks without destructive changes.\n` +
         `- Handle post-payment gracefully: Avoid reloading the page immediately after payment. The script uses a 60-second grace period (via localStorage) to prevent re-blocking during propagation delays or minor re-renders.\n` +
+        `- The paywall enforces STRICT server-first checks on every page load/refresh. It shows the overlay FIRST and only hides after backend confirmation. Never rely on localStorage alone.\n` +
         `- After integration, verify access checks run before showing protected UI:\n` +
         `  - Frontend: call window.paywallHandshake((hasAccess) => { if (!hasAccess) { /* hide UI or redirect */ } }) before rendering protected content, but do NOT call this handshake on the initial page load. Re-check every 30 seconds to enforce session expiry. If using React/Vue, call in useEffect or mounted hook for protected components only.\n` +
         `  - Backend (Motoko): check access before returning sensitive data, e.g. if (not (await Paywall.hasAccess(caller, "${id}"))) { Debug.trap("Access denied"); }.\n` +

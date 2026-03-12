@@ -17,6 +17,18 @@ const TRACKING_URL = 'https://r5s6s-waaaa-aaaab-ac3za-cai.icp0.io/track';
 const GRACE_PERIOD_MS = 120000;
 const PERIODIC_CHECK_INTERVAL_MS = 30000;
 const TAMPER_CHECK_INTERVAL_MS = 5000;
+
+const getScriptTag = (paywallId) =>
+  document.querySelector(`script[data-paywall][src*="${paywallId}"]`);
+
+const isMyScriptStillPresent = (paywallId) => !!getScriptTag(paywallId);
+
+const destroyInstance = (paywallId) => {
+  const key = `__ic_paywall__${tamperContext?.backendId || ''}__${paywallId}`;
+  delete window.__ic_paywall_instances?.[key];
+  window.forceClearPaywall?.(paywallId);
+};
+
 const DEVTOOLS_THRESHOLD_PX = 160;
 const OVERLAY_STYLE =
   'position:fixed;inset:0;background:rgba(6,9,20,0.88);color:#fff;z-index:999999999;display:flex;align-items:center;justify-content:center;padding:24px;pointer-events:all;';
@@ -423,6 +435,12 @@ const detectDevTools = () => {
 };
 
 const runTamperCheck = async () => {
+  const currentPaywallId = tamperContext?.paywallId;
+  if (currentPaywallId && !isMyScriptStillPresent(currentPaywallId)) {
+    destroyInstance(currentPaywallId);
+    return false;
+  }
+
   if (!tamperContext || tamperDetected) return !tamperDetected;
   const integrityOk = await checkScriptIntegrity(
     tamperContext.scriptTag,
@@ -440,6 +458,11 @@ const runTamperCheck = async () => {
 const startTamperChecks = () => {
   if (tamperIntervalId) return;
   tamperIntervalId = setInterval(() => {
+    const currentPaywallId = tamperContext?.paywallId;
+    if (currentPaywallId && !isMyScriptStillPresent(currentPaywallId)) {
+      destroyInstance(currentPaywallId);
+      return;
+    }
     if (!paywallActive) return;
     void runTamperCheck();
   }, TAMPER_CHECK_INTERVAL_MS);
@@ -539,109 +562,109 @@ const setupPaymentUI = async (
     details.style.display = 'block';
     details.innerHTML = '';
 
-  const priceE8s = BigInt(config.price_e8s);
-  const destinationCount = config.destinations?.length ?? 0;
-  const ledgerFeeCount = BigInt(destinationCount + 2);
-  const requiredBalanceE8s = priceE8s + LEDGER_FEE_E8S * ledgerFeeCount;
+    const priceE8s = BigInt(config.price_e8s);
+    const destinationCount = config.destinations?.length ?? 0;
+    const ledgerFeeCount = BigInt(destinationCount + 2);
+    const requiredBalanceE8s = priceE8s + LEDGER_FEE_E8S * ledgerFeeCount;
 
-  const priceIcp = Number(priceE8s) / 100_000_000;
-  const estimatedFeesIcp = Number(LEDGER_FEE_E8S * ledgerFeeCount) / 100_000_000;
-  const requiredBalanceIcp = Number(requiredBalanceE8s) / 100_000_000;
+    const priceIcp = Number(priceE8s) / 100_000_000;
+    const estimatedFeesIcp = Number(LEDGER_FEE_E8S * ledgerFeeCount) / 100_000_000;
+    const requiredBalanceIcp = Number(requiredBalanceE8s) / 100_000_000;
 
-  const paymentPromptText =
-    config.payment_prompt_text?.[0]?.trim() || 'Complete payment to continue.';
+    const paymentPromptText =
+      config.payment_prompt_text?.[0]?.trim() || 'Complete payment to continue.';
 
-  const ledger = LedgerCanister.create({
-    agent,
-    canisterId: Principal.fromText(ledgerId),
-  });
-
-  const getAccountInfo = async (account, labelForErrors) => {
-    const subaccount = unwrapSubaccount(account.subaccount);
-    const accountIdentifier = principalToAccountIdentifier(account.owner, subaccount);
-
-    let balanceE8s = 0n;
-    try {
-      balanceE8s = await ledger.accountBalance({
-        accountIdentifier,
-        certified: false,
-      });
-    } catch (error) {
-      console.error(`Error fetching ${labelForErrors} balance:`, error);
-      alert(
-        `Failed to fetch your ${labelForErrors} balance. Assuming 0 ICP. You can still deposit and click Refresh.`,
-      );
-    }
-
-    return { accountIdentifier, balanceE8s };
-  };
-
-  const renderAccountBlock = (title, accountIdentifier, balanceE8s) => {
-    const wrapper = document.createElement('div');
-    wrapper.style.cssText =
-      'margin:12px 0;padding:12px;border:1px solid rgba(255,255,255,0.12);border-radius:12px;background:rgba(255,255,255,0.04);';
-
-    const header = document.createElement('p');
-    header.style.cssText = 'margin:0 0 8px;font-weight:700;';
-    header.textContent = title;
-    wrapper.appendChild(header);
-
-    const bal = document.createElement('p');
-    bal.style.cssText = 'margin:0 0 10px;color:#d1d5db;';
-    bal.textContent = `Balance: ${(Number(balanceE8s) / 100_000_000).toFixed(8)} ICP`;
-    wrapper.appendChild(bal);
-
-    const label = document.createElement('p');
-    label.style.cssText = 'margin:0 0 6px;color:#d1d5db;';
-    label.textContent = 'Account ID (deposit here):';
-    wrapper.appendChild(label);
-
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;';
-
-    const span = document.createElement('span');
-    span.textContent = accountIdentifier;
-    span.style.cssText =
-      'word-break:break-all;display:block;max-width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;font-size:12px;line-height:1.35;';
-
-    const copyButton = document.createElement('button');
-    copyButton.type = 'button';
-    copyButton.textContent = 'Copy';
-    copyButton.style.cssText =
-      'background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer;min-height:36px;';
-    copyButton.addEventListener('click', async () => {
-      try {
-        await copyToClipboard(accountIdentifier);
-        copyButton.textContent = 'Copied!';
-        setTimeout(() => (copyButton.textContent = 'Copy'), 1200);
-      } catch (error) {
-        console.error('Copy failed:', error);
-        alert('Copy failed. Please copy manually.');
-      }
+    const ledger = LedgerCanister.create({
+      agent,
+      canisterId: Principal.fromText(ledgerId),
     });
 
-    row.appendChild(span);
-    row.appendChild(copyButton);
-    wrapper.appendChild(row);
+    const getAccountInfo = async (account, labelForErrors) => {
+      const subaccount = unwrapSubaccount(account.subaccount);
+      const accountIdentifier = principalToAccountIdentifier(account.owner, subaccount);
 
-    return { wrapper, bal };
-  };
+      let balanceE8s = 0n;
+      try {
+        balanceE8s = await ledger.accountBalance({
+          accountIdentifier,
+          certified: false,
+        });
+      } catch (error) {
+        console.error(`Error fetching ${labelForErrors} balance:`, error);
+        alert(
+          `Failed to fetch your ${labelForErrors} balance. Assuming 0 ICP. You can still deposit and click Refresh.`,
+        );
+      }
 
-  const promptLine = document.createElement('p');
-  promptLine.style.cssText = 'margin:0 0 14px;';
-  promptLine.textContent = paymentPromptText;
-  details.appendChild(promptLine);
+      return { accountIdentifier, balanceE8s };
+    };
 
-  const guideBtn = document.createElement('button');
-  guideBtn.type = 'button';
-  guideBtn.textContent = '▼ How this paywall works';
-  guideBtn.style.cssText =
-    'background:#1f2937;color:#d1d5db;border:none;border-radius:10px;padding:10px 16px;font-size:13px;cursor:pointer;margin:0 0 10px;width:100%;text-align:left;';
+    const renderAccountBlock = (title, accountIdentifier, balanceE8s) => {
+      const wrapper = document.createElement('div');
+      wrapper.style.cssText =
+        'margin:12px 0;padding:12px;border:1px solid rgba(255,255,255,0.12);border-radius:12px;background:rgba(255,255,255,0.04);';
 
-  const guideContent = document.createElement('div');
-  guideContent.style.cssText =
-    'display:none;background:rgba(255,255,255,0.05);padding:14px;border-radius:10px;margin:0 0 12px;font-size:13px;line-height:1.5;color:#e5e7eb;';
-  guideContent.innerHTML = `
+      const header = document.createElement('p');
+      header.style.cssText = 'margin:0 0 8px;font-weight:700;';
+      header.textContent = title;
+      wrapper.appendChild(header);
+
+      const bal = document.createElement('p');
+      bal.style.cssText = 'margin:0 0 10px;color:#d1d5db;';
+      bal.textContent = `Balance: ${(Number(balanceE8s) / 100_000_000).toFixed(8)} ICP`;
+      wrapper.appendChild(bal);
+
+      const label = document.createElement('p');
+      label.style.cssText = 'margin:0 0 6px;color:#d1d5db;';
+      label.textContent = 'Account ID (deposit here):';
+      wrapper.appendChild(label);
+
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;';
+
+      const span = document.createElement('span');
+      span.textContent = accountIdentifier;
+      span.style.cssText =
+        'word-break:break-all;display:block;max-width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;font-size:12px;line-height:1.35;';
+
+      const copyButton = document.createElement('button');
+      copyButton.type = 'button';
+      copyButton.textContent = 'Copy';
+      copyButton.style.cssText =
+        'background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer;min-height:36px;';
+      copyButton.addEventListener('click', async () => {
+        try {
+          await copyToClipboard(accountIdentifier);
+          copyButton.textContent = 'Copied!';
+          setTimeout(() => (copyButton.textContent = 'Copy'), 1200);
+        } catch (error) {
+          console.error('Copy failed:', error);
+          alert('Copy failed. Please copy manually.');
+        }
+      });
+
+      row.appendChild(span);
+      row.appendChild(copyButton);
+      wrapper.appendChild(row);
+
+      return { wrapper, bal };
+    };
+
+    const promptLine = document.createElement('p');
+    promptLine.style.cssText = 'margin:0 0 14px;';
+    promptLine.textContent = paymentPromptText;
+    details.appendChild(promptLine);
+
+    const guideBtn = document.createElement('button');
+    guideBtn.type = 'button';
+    guideBtn.textContent = '▼ How this paywall works';
+    guideBtn.style.cssText =
+      'background:#1f2937;color:#d1d5db;border:none;border-radius:10px;padding:10px 16px;font-size:13px;cursor:pointer;margin:0 0 10px;width:100%;text-align:left;';
+
+    const guideContent = document.createElement('div');
+    guideContent.style.cssText =
+      'display:none;background:rgba(255,255,255,0.05);padding:14px;border-radius:10px;margin:0 0 12px;font-size:13px;line-height:1.5;color:#e5e7eb;';
+    guideContent.innerHTML = `
     <strong>How this paywall works:</strong><br>
     • Deposit ICP to the wallet address below.<br>
     • Click <strong>I have deposited – Unlock now</strong>.<br><br>
@@ -654,333 +677,368 @@ const setupPaymentUI = async (
     Network transfer fees are shown in the payment confirmation before settlement.
   `;
 
-  guideBtn.addEventListener('click', () => {
-    const shouldOpen = guideContent.style.display === 'none';
-    guideContent.style.display = shouldOpen ? 'block' : 'none';
-    guideBtn.textContent = shouldOpen
-      ? '▲ How this paywall works'
-      : '▼ How this paywall works';
-  });
+    guideBtn.addEventListener('click', () => {
+      const shouldOpen = guideContent.style.display === 'none';
+      guideContent.style.display = shouldOpen ? 'block' : 'none';
+      guideBtn.textContent = shouldOpen
+        ? '▲ How this paywall works'
+        : '▼ How this paywall works';
+    });
 
-  details.appendChild(guideBtn);
-  details.appendChild(guideContent);
+    details.appendChild(guideBtn);
+    details.appendChild(guideContent);
 
-  const walletAccount = await authedActor.getUserAccount();
-  const walletInfo = await getAccountInfo(walletAccount, 'wallet');
+    const walletAccount = await authedActor.getUserAccount();
+    const walletInfo = await getAccountInfo(walletAccount, 'wallet');
 
-  const walletBlock = renderAccountBlock(
-    'Your Paywall Wallet (deposit ICP here)',
-    walletInfo.accountIdentifier,
-    walletInfo.balanceE8s,
-  );
-  details.appendChild(walletBlock.wrapper);
+    const walletBlock = renderAccountBlock(
+      'Your Paywall Wallet (deposit ICP here)',
+      walletInfo.accountIdentifier,
+      walletInfo.balanceE8s,
+    );
+    details.appendChild(walletBlock.wrapper);
 
-  const escrowBalance = await authedActor.getEscrowBalance(paywallId, identity.getPrincipal());
-  const escrowWrapper = document.createElement('div');
-  escrowWrapper.style.cssText =
-    'margin:12px 0;padding:12px;border:1px solid rgba(255,255,255,0.12);border-radius:12px;background:rgba(255,255,255,0.04);';
-  escrowWrapper.style.display = 'none';
+    const escrowBalance = await authedActor.getEscrowBalance(
+      paywallId,
+      identity.getPrincipal(),
+    );
+    const escrowWrapper = document.createElement('div');
+    escrowWrapper.style.cssText =
+      'margin:12px 0;padding:12px;border:1px solid rgba(255,255,255,0.12);border-radius:12px;background:rgba(255,255,255,0.04);';
+    escrowWrapper.style.display = 'none';
 
-  const escrowHeader = document.createElement('p');
-  escrowHeader.style.cssText = 'margin:0 0 8px;font-weight:700;';
-  escrowHeader.textContent = 'Escrow (temporary hold)';
-  escrowWrapper.appendChild(escrowHeader);
+    const escrowHeader = document.createElement('p');
+    escrowHeader.style.cssText = 'margin:0 0 8px;font-weight:700;';
+    escrowHeader.textContent = 'Escrow (temporary hold)';
+    escrowWrapper.appendChild(escrowHeader);
 
-  const escrowBal = document.createElement('p');
-  escrowBal.style.cssText = 'margin:0 0 12px;color:#d1d5db;';
-  escrowWrapper.appendChild(escrowBal);
+    const escrowBal = document.createElement('p');
+    escrowBal.style.cssText = 'margin:0 0 12px;color:#d1d5db;';
+    escrowWrapper.appendChild(escrowBal);
 
-  const escrowRefundNote = document.createElement('p');
-  escrowRefundNote.style.cssText = 'margin:4px 0 8px;font-size:12px;color:#9ca3af;display:none;';
-  escrowRefundNote.textContent = 'Returns funds to your wallet (no payments in progress)';
-  escrowWrapper.appendChild(escrowRefundNote);
+    const escrowRefundNote = document.createElement('p');
+    escrowRefundNote.style.cssText =
+      'margin:4px 0 8px;font-size:12px;color:#9ca3af;display:none;';
+    escrowRefundNote.textContent =
+      'Returns funds to your wallet (no payments in progress)';
+    escrowWrapper.appendChild(escrowRefundNote);
 
-  const escrowRefundButton = document.createElement('button');
-  escrowRefundButton.type = 'button';
-  escrowRefundButton.textContent = 'Refund escrow';
-  escrowRefundButton.style.cssText =
-    'background:#ef4444;color:#fff;border:none;border-radius:10px;padding:8px 16px;font-size:14px;cursor:pointer;min-height:40px;width:100%;display:none;';
-  escrowWrapper.appendChild(escrowRefundButton);
-
-  let escrowBalanceE8s = escrowBalance;
-  const updateEscrowUi = (balanceE8s) => {
-    escrowBalanceE8s = balanceE8s;
-    escrowBal.textContent = `Balance: ${formatIcp(escrowBalanceE8s)} ICP`;
-    const showEscrow = escrowBalanceE8s > LEDGER_FEE_E8S;
-    escrowWrapper.style.display = showEscrow ? 'block' : 'none';
-    escrowRefundNote.style.display = showEscrow ? 'block' : 'none';
-    escrowRefundButton.style.display = showEscrow ? 'block' : 'none';
-  };
-
-  const disableRefundDuringPayment = () => {
-    escrowRefundButton.disabled = true;
-    escrowRefundButton.style.opacity = '0.5';
-    escrowRefundButton.textContent = 'Payment in progress...';
-  };
-
-  const enableRefund = () => {
-    escrowRefundButton.disabled = false;
-    escrowRefundButton.style.opacity = '1';
+    const escrowRefundButton = document.createElement('button');
+    escrowRefundButton.type = 'button';
     escrowRefundButton.textContent = 'Refund escrow';
-  };
+    escrowRefundButton.style.cssText =
+      'background:#ef4444;color:#fff;border:none;border-radius:10px;padding:8px 16px;font-size:14px;cursor:pointer;min-height:40px;width:100%;display:none;';
+    escrowWrapper.appendChild(escrowRefundButton);
 
-  escrowRefundButton.addEventListener('click', async () => {
-    if (escrowRefundButton.disabled) return;
+    let escrowBalanceE8s = escrowBalance;
+    const updateEscrowUi = (balanceE8s) => {
+      escrowBalanceE8s = balanceE8s;
+      escrowBal.textContent = `Balance: ${formatIcp(escrowBalanceE8s)} ICP`;
+      const showEscrow = escrowBalanceE8s > LEDGER_FEE_E8S;
+      escrowWrapper.style.display = showEscrow ? 'block' : 'none';
+      escrowRefundNote.style.display = showEscrow ? 'block' : 'none';
+      escrowRefundButton.style.display = showEscrow ? 'block' : 'none';
+    };
 
-    if (!confirm('Refund all escrow back to your Paywall wallet balance?')) return;
+    const disableRefundDuringPayment = () => {
+      escrowRefundButton.disabled = true;
+      escrowRefundButton.style.opacity = '0.5';
+      escrowRefundButton.textContent = 'Payment in progress...';
+    };
 
-    escrowRefundButton.disabled = true;
-    escrowRefundButton.textContent = 'Refunding...';
-    try {
-      const result = await authedActor.refundEscrow(paywallId);
-      if ('Ok' in result) {
-        alert('✅ Refund submitted successfully. Refreshing balances...');
-        refreshButton.click();
-      } else {
-        alert(`Refund failed: ${result.Err}`);
-      }
-    } catch (error) {
-      alert(`Refund error: ${formatErrorMessage(error, 'Unknown error')}`);
-    } finally {
+    const enableRefund = () => {
       escrowRefundButton.disabled = false;
+      escrowRefundButton.style.opacity = '1';
       escrowRefundButton.textContent = 'Refund escrow';
-    }
-  });
+    };
 
-  updateEscrowUi(escrowBalance);
-  details.appendChild(escrowWrapper);
+    escrowRefundButton.addEventListener('click', async () => {
+      if (escrowRefundButton.disabled) return;
 
-  const makePaymentBtn = document.createElement('button');
-  makePaymentBtn.type = 'button';
-  makePaymentBtn.style.cssText =
-    'background:#16a34a;color:#fff;border:none;border-radius:12px;padding:14px 20px;font-size:16px;font-weight:600;cursor:pointer;width:100%;margin:16px 0 8px;min-height:52px;';
-  makePaymentBtn.textContent = 'I have deposited – Unlock now';
+      if (!confirm('Refund all escrow back to your Paywall wallet balance?')) return;
 
-  makePaymentBtn.addEventListener('click', async () => {
-    const durationText = formatDuration(config.session_duration_ns);
-    const confirmMessage =
-      `You are about to be charged ${requiredBalanceIcp.toFixed(8)} ICP TOTAL from your paywall wallet balance.\n\n` +
-      `Breakdown:\n` +
-      `• Paywall price:          ${priceIcp.toFixed(8)} ICP\n` +
-      `• Ledger/network fees (est.): ${estimatedFeesIcp.toFixed(8)} ICP\n\n` +
-      `After successful settlement you will have access for ${durationText}.\n\n` +
-      '• Any extra ICP left in your wallet stays available for future payments.\n' +
-      '• If you have more ICP than you want to lock right now, withdraw it first.\n\n' +
-      'Ready to continue with payment?';
-
-    if (!confirm(confirmMessage)) return;
-
-    makePaymentBtn.disabled = true;
-    makePaymentBtn.textContent = 'Processing payment…';
-    disableRefundDuringPayment();
-
-    try {
-      const result = await authedActor.payFromBalance(paywallId);
-      if ('Ok' in result) {
-        localStorage.setItem(getRecentPaymentKey(paywallId), Date.now().toString());
-        const principal = identity.getPrincipal();
-        let confirmedAccess = await tryHasMyAccess(authedActor, principal, paywallId);
-        if (!confirmedAccess) {
-          confirmedAccess = await pollHasAccess(authedActor, principal, paywallId, 60, 800);
+      escrowRefundButton.disabled = true;
+      escrowRefundButton.textContent = 'Refunding...';
+      try {
+        const result = await authedActor.refundEscrow(paywallId);
+        if ('Ok' in result) {
+          alert('✅ Refund submitted successfully. Refreshing balances...');
+          refreshButton.click();
+        } else {
+          alert(`Refund failed: ${result.Err}`);
         }
-        if (confirmedAccess) {
-          const expiryOpt = await tryGetMyExpiry(authedActor, principal, paywallId);
-          const expiryNs = expiryOpt?.[0];
-          if (expiryNs) writeLocalExpiry(paywallId, expiryNs);
-          reportPaymentSuccess(paywallId, principal.toText());
-          alert('✅ Payment confirmed! Access granted.');
-          revealContent(overlay);
-          if (onAccessGranted) await onAccessGranted();
-          return;
-        }
-        alert('Payment succeeded but access is still syncing. Refresh the page.');
-      } else {
-        const msg = formatInsufficientBalanceMessage(result.Err || 'Unknown error');
-        alert(`Payment/settlement issue: ${msg}\n\nYour funds are SAFE in escrow!\n\nClick “Refund escrow” below (it now works reliably).`);
-        refreshButton.click();
+      } catch (error) {
+        alert(`Refund error: ${formatErrorMessage(error, 'Unknown error')}`);
+      } finally {
+        escrowRefundButton.disabled = false;
+        escrowRefundButton.textContent = 'Refund escrow';
       }
-    } catch (error) {
-      alert(`Payment error: ${formatErrorMessage(error, 'Unknown error')}`);
-    } finally {
-      makePaymentBtn.disabled = false;
-      makePaymentBtn.textContent = 'I have deposited – Unlock now';
-      enableRefund();
-      updateActionArea();
-    }
-  });
+    });
 
-  const refreshButton = document.createElement('button');
-  refreshButton.type = 'button';
-  refreshButton.textContent = 'Refresh balances';
-  refreshButton.style.cssText =
-    'background:#3b82f6;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:14px;cursor:pointer;margin:16px 0 12px;min-height:44px;width:100%;';
-  details.appendChild(refreshButton);
+    updateEscrowUi(escrowBalance);
+    details.appendChild(escrowWrapper);
 
-  const actionArea = document.createElement('div');
-  actionArea.id = 'paywall-action-area';
-  actionArea.style.cssText =
-    'display:flex;flex-wrap:wrap;gap:10px;margin:4px 0 6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.08);';
-  details.appendChild(actionArea);
+    const makePaymentBtn = document.createElement('button');
+    makePaymentBtn.type = 'button';
+    makePaymentBtn.style.cssText =
+      'background:#16a34a;color:#fff;border:none;border-radius:12px;padding:14px 20px;font-size:16px;font-weight:600;cursor:pointer;width:100%;margin:16px 0 8px;min-height:52px;';
+    makePaymentBtn.textContent = 'I have deposited – Unlock now';
 
-  const insufficientMessage = document.createElement('div');
-  insufficientMessage.id = 'insufficient-message';
-  insufficientMessage.style.cssText =
-    'margin:12px 0;padding:12px;background:rgba(239,68,68,0.1);border:1px solid #ef4444;border-radius:10px;color:#ef4444;font-size:14px;display:none;';
-  details.appendChild(insufficientMessage);
+    makePaymentBtn.addEventListener('click', async () => {
+      const durationText = formatDuration(config.session_duration_ns);
+      const confirmMessage =
+        `You are about to be charged ${requiredBalanceIcp.toFixed(8)} ICP TOTAL from your paywall wallet balance.\n\n` +
+        `Breakdown:\n` +
+        `• Paywall price:          ${priceIcp.toFixed(8)} ICP\n` +
+        `• Ledger/network fees (est.): ${estimatedFeesIcp.toFixed(8)} ICP\n\n` +
+        `After successful settlement you will have access for ${durationText}.\n\n` +
+        '• Any extra ICP left in your wallet stays available for future payments.\n' +
+        '• If you have more ICP than you want to lock right now, withdraw it first.\n\n' +
+        'Ready to continue with payment?';
 
-  const advancedActions = document.createElement('div');
-  advancedActions.style.cssText =
-    'display:none;gap:12px;margin-top:12px;border-top:1px dashed rgba(255,255,255,0.2);padding-top:12px;';
-  details.appendChild(advancedActions);
+      if (!confirm(confirmMessage)) return;
 
-  const updateActionArea = () => {
-    actionArea.innerHTML = '';
-    insufficientMessage.style.display = 'none';
+      makePaymentBtn.disabled = true;
+      makePaymentBtn.textContent = 'Processing payment…';
+      disableRefundDuringPayment();
 
-    const hasWalletBalance = walletInfo.balanceE8s > 0n;
-    const hasRequiredBalance = walletInfo.balanceE8s >= requiredBalanceE8s;
+      try {
+        const result = await authedActor.payFromBalance(paywallId);
+        if ('Ok' in result) {
+          localStorage.setItem(getRecentPaymentKey(paywallId), Date.now().toString());
+          const principal = identity.getPrincipal();
+          let confirmedAccess = await tryHasMyAccess(
+            authedActor,
+            principal,
+            paywallId,
+          );
+          if (!confirmedAccess) {
+            confirmedAccess = await pollHasAccess(
+              authedActor,
+              principal,
+              paywallId,
+              60,
+              800,
+            );
+          }
+          if (confirmedAccess) {
+            const expiryOpt = await tryGetMyExpiry(authedActor, principal, paywallId);
+            const expiryNs = expiryOpt?.[0];
+            if (expiryNs) writeLocalExpiry(paywallId, expiryNs);
+            reportPaymentSuccess(paywallId, principal.toText());
+            alert('✅ Payment confirmed! Access granted.');
+            revealContent(overlay);
+            if (onAccessGranted) await onAccessGranted();
+            return;
+          }
+          alert('Payment succeeded but access is still syncing. Refresh the page.');
+        } else {
+          const msg = formatInsufficientBalanceMessage(result.Err || 'Unknown error');
+          alert(
+            `Payment/settlement issue: ${msg}\n\nYour funds are SAFE in escrow!\n\nClick “Refund escrow” below (it now works reliably).`,
+          );
+          refreshButton.click();
+        }
+      } catch (error) {
+        alert(`Payment error: ${formatErrorMessage(error, 'Unknown error')}`);
+      } finally {
+        makePaymentBtn.disabled = false;
+        makePaymentBtn.textContent = 'I have deposited – Unlock now';
+        enableRefund();
+        updateActionArea();
+      }
+    });
 
-    if (hasRequiredBalance) {
-      actionArea.appendChild(makePaymentBtn);
-    }
+    const refreshButton = document.createElement('button');
+    refreshButton.type = 'button';
+    refreshButton.textContent = 'Refresh balances';
+    refreshButton.style.cssText =
+      'background:#3b82f6;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:14px;cursor:pointer;margin:16px 0 12px;min-height:44px;width:100%;';
+    details.appendChild(refreshButton);
 
-    if (!hasRequiredBalance) {
-      const shortfall = requiredBalanceE8s - walletInfo.balanceE8s;
-      insufficientMessage.innerHTML = `
+    const actionArea = document.createElement('div');
+    actionArea.id = 'paywall-action-area';
+    actionArea.style.cssText =
+      'display:flex;flex-wrap:wrap;gap:10px;margin:4px 0 6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.08);';
+    details.appendChild(actionArea);
+
+    const insufficientMessage = document.createElement('div');
+    insufficientMessage.id = 'insufficient-message';
+    insufficientMessage.style.cssText =
+      'margin:12px 0;padding:12px;background:rgba(239,68,68,0.1);border:1px solid #ef4444;border-radius:10px;color:#ef4444;font-size:14px;display:none;';
+    details.appendChild(insufficientMessage);
+
+    const advancedActions = document.createElement('div');
+    advancedActions.style.cssText =
+      'display:none;gap:12px;margin-top:12px;border-top:1px dashed rgba(255,255,255,0.2);padding-top:12px;';
+    details.appendChild(advancedActions);
+
+    const updateActionArea = () => {
+      actionArea.innerHTML = '';
+      insufficientMessage.style.display = 'none';
+
+      const hasWalletBalance = walletInfo.balanceE8s > 0n;
+      const hasRequiredBalance = walletInfo.balanceE8s >= requiredBalanceE8s;
+
+      if (hasRequiredBalance) {
+        actionArea.appendChild(makePaymentBtn);
+      }
+
+      if (!hasRequiredBalance) {
+        const shortfall = calculateShortfall(
+          walletInfo.balanceE8s,
+          requiredBalanceE8s,
+        );
+        insufficientMessage.innerHTML = `
         Deposit at least <strong>${formatIcp(requiredBalanceE8s)} ICP</strong> to your wallet.<br>
         Current balance: ${formatIcp(walletInfo.balanceE8s)} ICP<br>
         <span style="color:#ef4444">Shortfall: ${formatIcp(shortfall)} ICP</span>
       `;
-      insufficientMessage.style.display = 'block';
-    }
+        insufficientMessage.style.display = 'block';
+      }
 
-    advancedActions.style.display = hasWalletBalance ? 'grid' : 'none';
-  };
+      advancedActions.style.display = hasWalletBalance ? 'grid' : 'none';
+    };
 
-  updateActionArea();
+    updateActionArea();
 
-  refreshButton.addEventListener('click', async () => {
-    refreshButton.disabled = true;
-    refreshButton.textContent = 'Refreshing...';
-    try {
-      const refreshedWallet = await ledger.accountBalance({
-        accountIdentifier: walletInfo.accountIdentifier,
-        certified: false,
-      });
-      walletInfo.balanceE8s = refreshedWallet;
-      walletBlock.bal.textContent = `Balance: ${(Number(walletInfo.balanceE8s) / 100_000_000).toFixed(8)} ICP`;
-      const refreshedEscrow = await authedActor.getEscrowBalance(paywallId, identity.getPrincipal());
-      updateEscrowUi(refreshedEscrow);
-
-      updateActionArea();
-    } catch (error) {
-      console.error('Refresh balance error:', error);
-      alert('Failed to refresh balances. Please try again.');
-    } finally {
-      refreshButton.disabled = false;
-      refreshButton.textContent = 'Refresh balances';
-    }
-  });
-
-  const withdrawButton = document.createElement('button');
-  withdrawButton.textContent = 'Withdraw from wallet balance';
-  withdrawButton.style.cssText =
-    'background:#0ea5e9;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:14px;cursor:pointer;min-height:44px;';
-  withdrawButton.addEventListener('click', async () => {
-    const destination = prompt('Enter destination Principal or Account ID:');
-    if (!destination) return;
-    const input = destination.trim();
-
-    let to;
-    if (/^[0-9a-fA-F]{64}$/.test(input)) {
-      to = { LegacyAccountId: hexToBytes(input) };
-    } else {
+    refreshButton.addEventListener('click', async () => {
+      refreshButton.disabled = true;
+      refreshButton.textContent = 'Refreshing...';
       try {
-        const principal = Principal.fromText(input);
-        to = { Account: { owner: principal, subaccount: [] } };
+        const refreshedWallet = await ledger.accountBalance({
+          accountIdentifier: walletInfo.accountIdentifier,
+          certified: false,
+        });
+        walletInfo.balanceE8s = refreshedWallet;
+        walletBlock.bal.textContent = `Balance: ${(
+          Number(walletInfo.balanceE8s) / 100_000_000
+        ).toFixed(8)} ICP`;
+        const refreshedEscrow = await authedActor.getEscrowBalance(
+          paywallId,
+          identity.getPrincipal(),
+        );
+        updateEscrowUi(refreshedEscrow);
+
+        updateActionArea();
       } catch (error) {
-        alert('Invalid input: Must be a valid Principal or 64-hex Account ID.');
+        console.error('Refresh balance error:', error);
+        alert('Failed to refresh balances. Please try again.');
+      } finally {
+        refreshButton.disabled = false;
+        refreshButton.textContent = 'Refresh balances';
+      }
+    });
+
+    const withdrawButton = document.createElement('button');
+    withdrawButton.textContent = 'Withdraw from wallet balance';
+    withdrawButton.style.cssText =
+      'background:#0ea5e9;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:14px;cursor:pointer;min-height:44px;';
+    withdrawButton.addEventListener('click', async () => {
+      const destination = prompt('Enter destination Principal or Account ID:');
+      if (!destination) return;
+      const input = destination.trim();
+
+      let to;
+      if (/^[0-9a-fA-F]{64}$/.test(input)) {
+        to = { LegacyAccountId: hexToBytes(input) };
+      } else {
+        try {
+          const principal = Principal.fromText(input);
+          to = { Account: { owner: principal, subaccount: [] } };
+        } catch (error) {
+          alert('Invalid input: Must be a valid Principal or 64-hex Account ID.');
+          return;
+        }
+      }
+
+      const amountText = prompt('Enter amount in ICP:');
+      if (!amountText) return;
+
+      const amountIcp = Number.parseFloat(amountText);
+      if (Number.isNaN(amountIcp) || amountIcp <= 0) {
+        alert('Invalid amount.');
         return;
       }
-    }
+      const amountE8s = BigInt(Math.round(amountIcp * 100_000_000));
+      const confirmMessage = `Confirm withdrawal of ${amountIcp.toFixed(8)} ICP to ${destination}?`;
+      if (!confirm(confirmMessage)) return;
 
-    const amountText = prompt('Enter amount in ICP:');
-    if (!amountText) return;
-
-    const amountIcp = Number.parseFloat(amountText);
-    if (Number.isNaN(amountIcp) || amountIcp <= 0) {
-      alert('Invalid amount.');
-      return;
-    }
-    const amountE8s = BigInt(Math.round(amountIcp * 100_000_000));
-    const confirmMessage = `Confirm withdrawal of ${amountIcp.toFixed(8)} ICP to ${destination}?`;
-    if (!confirm(confirmMessage)) return;
-
-    withdrawButton.disabled = true;
-    withdrawButton.textContent = 'Withdrawing...';
-    try {
-      const result = await authedActor.withdrawFromWallet(amountE8s, to);
-      if ('Ok' in result) {
-        alert(`Withdraw successful! Block index: ${result.Ok}`);
-      } else {
-        alert(`Withdraw failed: ${result.Err}`);
+      withdrawButton.disabled = true;
+      withdrawButton.textContent = 'Withdrawing...';
+      try {
+        const result = await authedActor.withdrawFromWallet(amountE8s, to);
+        if ('Ok' in result) {
+          alert(`Withdraw successful! Block index: ${result.Ok}`);
+        } else {
+          alert(`Withdraw failed: ${result.Err}`);
+        }
+      } catch (error) {
+        alert(`Withdrawal error: ${formatErrorMessage(error, 'Unknown error')}`);
+        console.error('Withdrawal error:', error);
+      } finally {
+        withdrawButton.disabled = false;
+        withdrawButton.textContent = 'Withdraw from wallet balance';
       }
-    } catch (error) {
-      alert(`Withdrawal error: ${formatErrorMessage(error, 'Unknown error')}`);
-      console.error('Withdrawal error:', error);
-    } finally {
-      withdrawButton.disabled = false;
-      withdrawButton.textContent = 'Withdraw from wallet balance';
-    }
-  });
-  advancedActions.appendChild(withdrawButton);
+    });
+    advancedActions.appendChild(withdrawButton);
 
-  const retrySettleButton = document.createElement('button');
-  retrySettleButton.textContent = 'Retry payment settlement';
-  retrySettleButton.style.cssText =
-    'background:#f59e0b;color:#111827;border:none;border-radius:10px;padding:10px 16px;font-size:14px;cursor:pointer;margin-top:12px;min-height:44px;';
-  retrySettleButton.addEventListener('click', async () => {
-    retrySettleButton.disabled = true;
-    retrySettleButton.textContent = 'Retrying...';
-    disableRefundDuringPayment();
-    try {
-      const result = await authedActor.settleEscrow(paywallId);
-      if ('Ok' in result) {
-        localStorage.setItem(getRecentPaymentKey(paywallId), Date.now().toString());
-        const principal = identity.getPrincipal();
-        let confirmedAccess = await tryHasMyAccess(authedActor, principal, paywallId);
-        if (!confirmedAccess) {
-          confirmedAccess = await pollHasAccess(
+    const retrySettleButton = document.createElement('button');
+    retrySettleButton.textContent = 'Retry payment settlement';
+    retrySettleButton.style.cssText =
+      'background:#f59e0b;color:#111827;border:none;border-radius:10px;padding:10px 16px;font-size:14px;cursor:pointer;margin-top:12px;min-height:44px;';
+    retrySettleButton.addEventListener('click', async () => {
+      retrySettleButton.disabled = true;
+      retrySettleButton.textContent = 'Retrying...';
+      disableRefundDuringPayment();
+      try {
+        const result = await authedActor.settleEscrow(paywallId);
+        if ('Ok' in result) {
+          localStorage.setItem(getRecentPaymentKey(paywallId), Date.now().toString());
+          const principal = identity.getPrincipal();
+          let confirmedAccess = await tryHasMyAccess(
             authedActor,
             principal,
             paywallId,
-            60,
-            800,
           );
+          if (!confirmedAccess) {
+            confirmedAccess = await pollHasAccess(
+              authedActor,
+              principal,
+              paywallId,
+              60,
+              800,
+            );
+          }
+          if (confirmedAccess) {
+            const expiryOpt = await tryGetMyExpiry(authedActor, principal, paywallId);
+            const expiryNs = expiryOpt?.[0];
+            if (expiryNs) writeLocalExpiry(paywallId, expiryNs);
+            reportPaymentSuccess(paywallId, principal.toText());
+            alert(
+              '✅ Payment confirmed! Access granted. The page will refresh automatically if needed.',
+            );
+            revealContent(overlay);
+            if (onAccessGranted) await onAccessGranted();
+            return;
+          }
+          alert(
+            'Settlement succeeded, but access is still propagating. Please wait and refresh.',
+          );
+        } else {
+          alert(
+            `Payment/settlement issue: ${result.Err}\n\nYour funds are SAFE in escrow!\n\nClick “Refund escrow” below (it now works reliably).`,
+          );
+          refreshButton.click();
         }
-        if (confirmedAccess) {
-          const expiryOpt = await tryGetMyExpiry(authedActor, principal, paywallId);
-          const expiryNs = expiryOpt?.[0];
-          if (expiryNs) writeLocalExpiry(paywallId, expiryNs);
-          reportPaymentSuccess(paywallId, principal.toText());
-          alert('✅ Payment confirmed! Access granted. The page will refresh automatically if needed.');
-          revealContent(overlay);
-          if (onAccessGranted) await onAccessGranted();
-          return;
-        }
-        alert('Settlement succeeded, but access is still propagating. Please wait and refresh.');
-      } else {
-        alert(`Payment/settlement issue: ${result.Err}\n\nYour funds are SAFE in escrow!\n\nClick “Refund escrow” below (it now works reliably).`);
-        refreshButton.click();
+      } catch (error) {
+        alert(`Settlement error: ${formatErrorMessage(error, 'Unknown error')}`);
+      } finally {
+        retrySettleButton.disabled = false;
+        retrySettleButton.textContent = 'Retry payment settlement';
+        enableRefund();
       }
-    } catch (error) {
-      alert(`Settlement error: ${formatErrorMessage(error, 'Unknown error')}`);
-    } finally {
-      retrySettleButton.disabled = false;
-      retrySettleButton.textContent = 'Retry payment settlement';
-      enableRefund();
-    }
-  });
+    });
     advancedActions.appendChild(retrySettleButton);
   })();
 
@@ -1188,6 +1246,9 @@ const revealContent = (overlay) => {
   restoreContent();
 };
 
+let verifyVisibilityAccessWrapper = null;
+let handleFocus = null;
+
 const run = async () => {
   try {
     const scriptTag = document.querySelector('script[data-paywall]');
@@ -1199,15 +1260,25 @@ const run = async () => {
 
     const backendId =
       scriptTag.dataset.backendId || window.PAYWALL_BACKEND_ID || '';
+    if (!backendId) return;
 
-    // NEW: Support forced re-initialization from the main app (for SPA room re-entry)
-    const url = new URL(scriptTag.src);
-    const forceReinit = url.searchParams.get('forceReinit') === 'true';
-    const forceReinitInstanceKey = `__ic_paywall__${backendId}__${paywallId}`;
-    if (forceReinit) {
-      delete window.__ic_paywall_instances?.[forceReinitInstanceKey];
-      console.log('[IC Paywall] forceReinit=true — singleton guard bypassed for room re-entry');
-    }
+    tamperContext = {
+      ...(tamperContext || {}),
+      backendId,
+      paywallId,
+      scriptTag,
+    };
+
+    const selfDestructObserver = new MutationObserver(() => {
+      if (!isMyScriptStillPresent(paywallId)) {
+        destroyInstance(paywallId);
+        selfDestructObserver.disconnect();
+      }
+    });
+    selfDestructObserver.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+    });
 
     initSessionTracker();
     const ledgerId =
@@ -1215,20 +1286,31 @@ const run = async () => {
       window.PAYWALL_LEDGER_ID ||
       DEFAULT_LEDGER_ID;
 
-    if (!backendId) return;
+    const url = new URL(scriptTag.src);
+    const forceReinit = url.searchParams.get('forceReinit') === 'true';
+    const forceReinitInstanceKey = `__ic_paywall__${backendId}__${paywallId}`;
+    if (forceReinit) {
+      delete window.__ic_paywall_instances?.[forceReinitInstanceKey];
+      console.log(
+        '[IC Paywall] forceReinit=true — singleton guard bypassed for room re-entry',
+      );
+    }
 
     const instanceKey = `__ic_paywall__${backendId}__${paywallId}`;
     window.__ic_paywall_instances = window.__ic_paywall_instances || {};
     window.__ic_paywall_timers = window.__ic_paywall_timers || {};
     const timerKey = `__timer_${backendId}_${paywallId}`;
     if (window.__ic_paywall_instances[instanceKey]) {
-      console.warn('IC Paywall already initialized for this paywall on this page. Skipping.');
+      console.warn(
+        'IC Paywall already initialized for this paywall on this page. Skipping.',
+      );
       return;
     }
     window.__ic_paywall_instances[instanceKey] = true;
 
     const expectedScriptHash = getExpectedScriptHash(scriptTag);
-    const icHost = scriptTag.dataset.icHost || window.PAYWALL_IC_HOST || DEFAULT_IC_HOST;
+    const icHost =
+      scriptTag.dataset.icHost || window.PAYWALL_IC_HOST || DEFAULT_IC_HOST;
     const agent = new HttpAgent({ host: icHost });
     const actor = Actor.createActor(idlFactory, {
       agent,
@@ -1263,22 +1345,34 @@ const run = async () => {
     };
 
     const scheduleAccessTimers = async (authedActor, identity) => {
+      if (!isMyScriptStillPresent(paywallId)) {
+        clearAccessTimers();
+        destroyInstance(paywallId);
+        return;
+      }
+
       clearAccessTimers();
       try {
         const principal = identity.getPrincipal();
-        const expiryResponse = await tryGetMyExpiry(authedActor, principal, paywallId);
+        const expiryResponse = await tryGetMyExpiry(
+          authedActor,
+          principal,
+          paywallId,
+        );
         const expiryNs = expiryResponse?.[0] || readLocalExpiry(paywallId);
         if (expiryNs) writeLocalExpiry(paywallId, expiryNs);
         if (expiryNs) {
-          const nowNs = BigInt(Date.now()) * 1_000_000n;
-          const remainingNs = expiryNs - nowNs;
+          const currentNowNs = BigInt(Date.now()) * 1_000_000n;
+          const remainingNs = expiryNs - currentNowNs;
           if (remainingNs > 0n) {
             let remainingMs = Number(remainingNs / 1_000_000n);
-            if (remainingMs > Number.MAX_SAFE_INTEGER) remainingMs = Number.MAX_SAFE_INTEGER;
+            if (remainingMs > Number.MAX_SAFE_INTEGER) {
+              remainingMs = Number.MAX_SAFE_INTEGER;
+            }
             accessTimeoutId = setTimeout(() => {
-              // SAFETY GUARD: only show if THIS paywall's script is still on the page
-              if (!document.querySelector(`script[data-paywall][src*="${paywallId}"]`)) {
+              if (!isMyScriptStillPresent(paywallId)) {
                 clearAccessTimers();
+                destroyInstance(paywallId);
                 return;
               }
               void showPaywall(authedActor, identity);
@@ -1291,22 +1385,34 @@ const run = async () => {
 
       let failureStreak = 0;
       accessIntervalId = setInterval(async () => {
-        // SAFETY GUARD
-        if (!document.querySelector(`script[data-paywall][src*="${paywallId}"]`)) {
+        if (!isMyScriptStillPresent(paywallId)) {
           clearAccessTimers();
+          destroyInstance(paywallId);
           return;
         }
+
         try {
           const principal = identity.getPrincipal();
-          const stillHasAccessQuery = await authedActor.hasAccess(principal, paywallId);
+          const stillHasAccessQuery = await authedActor.hasAccess(
+            principal,
+            paywallId,
+          );
           if (stillHasAccessQuery) {
             failureStreak = 0;
             return;
           }
 
-          const stillHasAccessFresh = await tryHasMyAccess(authedActor, principal, paywallId);
+          const stillHasAccessFresh = await tryHasMyAccess(
+            authedActor,
+            principal,
+            paywallId,
+          );
           if (stillHasAccessFresh) {
-            const expiryResponse = await tryGetMyExpiry(authedActor, principal, paywallId);
+            const expiryResponse = await tryGetMyExpiry(
+              authedActor,
+              principal,
+              paywallId,
+            );
             if (expiryResponse?.[0]) writeLocalExpiry(paywallId, expiryResponse[0]);
             failureStreak = 0;
             return;
@@ -1327,7 +1433,10 @@ const run = async () => {
         }
       }, PERIODIC_CHECK_INTERVAL_MS);
 
-      window.__ic_paywall_timers[timerKey] = { timeout: accessTimeoutId, interval: accessIntervalId };
+      window.__ic_paywall_timers[timerKey] = {
+        timeout: accessTimeoutId,
+        interval: accessIntervalId,
+      };
 
       window.addEventListener('beforeunload', () => clearAccessTimers());
     };
@@ -1404,10 +1513,17 @@ const run = async () => {
         console.error('Stack:', error?.stack);
 
         let userMsg = 'An error occurred. Please try again.';
-        if (error?.message?.includes('Failed to fetch') || error?.message?.includes('network')) {
+        if (
+          error?.message?.includes('Failed to fetch') ||
+          error?.message?.includes('network')
+        ) {
           userMsg = 'Network issue – check your connection and try again.';
-        } else if (error?.message?.includes('principal') || error?.message?.includes('identity')) {
-          userMsg = 'Authentication failed. Refresh the page and try logging in again.';
+        } else if (
+          error?.message?.includes('principal') ||
+          error?.message?.includes('identity')
+        ) {
+          userMsg =
+            'Authentication failed. Refresh the page and try logging in again.';
         } else if (error?.message) {
           userMsg = `Error: ${error.message.substring(0, 120)}`;
         }
@@ -1422,6 +1538,7 @@ const run = async () => {
     tamperContext = {
       actor,
       paywallId,
+      backendId,
       scriptTag,
       expectedScriptHash,
       overlay,
@@ -1437,7 +1554,13 @@ const run = async () => {
     showOverlay(overlay);
 
     const verifyVisibilityAccess = async () => {
+      if (!isMyScriptStillPresent(paywallId)) {
+        clearAccessTimers();
+        destroyInstance(paywallId);
+        return;
+      }
       if (document.visibilityState !== 'visible' || paywallActive) return;
+
       const authClient = await createAuthClient();
       if (!(await authClient.isAuthenticated())) {
         await showOverlay(overlay);
@@ -1459,15 +1582,6 @@ const run = async () => {
         await showPaywall(authedActor, identity);
       }
     };
-
-    document.addEventListener('visibilitychange', () => {
-      void verifyVisibilityAccess().catch((error) => {
-        console.warn('Visibility access verification failed:', error);
-      });
-    });
-    window.addEventListener('focus', () =>
-      document.dispatchEvent(new Event('visibilitychange')),
-    );
 
     const verifyAndInitialize = async () => {
       try {
@@ -1555,17 +1669,44 @@ const run = async () => {
         return false;
       }
     };
+
+    verifyVisibilityAccessWrapper = () =>
+      void verifyVisibilityAccess().catch(console.warn);
+    handleFocus = () => document.dispatchEvent(new Event('visibilitychange'));
+
+    document.addEventListener(
+      'visibilitychange',
+      verifyVisibilityAccessWrapper,
+    );
+    window.addEventListener('focus', handleFocus);
   } catch (error) {
     console.error('Paywall script error:', error);
     const scriptTag = document.querySelector('script[data-paywall]');
     const scriptSrc = scriptTag?.src || '';
     const paywallUrl = scriptSrc ? new URL(scriptSrc) : null;
     const paywallId = paywallUrl?.searchParams.get('paywallId');
-    const backendId = scriptTag?.dataset?.backendId || window.PAYWALL_BACKEND_ID || '';
-    const instanceKey = paywallId && backendId ? `__ic_paywall__${backendId}__${paywallId}` : null;
+    const backendId =
+      scriptTag?.dataset?.backendId || window.PAYWALL_BACKEND_ID || '';
+    const instanceKey =
+      paywallId && backendId
+        ? `__ic_paywall__${backendId}__${paywallId}`
+        : null;
     if (instanceKey && window.__ic_paywall_instances) {
       delete window.__ic_paywall_instances[instanceKey];
     }
+
+    if (verifyVisibilityAccessWrapper) {
+      document.removeEventListener(
+        'visibilitychange',
+        verifyVisibilityAccessWrapper,
+      );
+      verifyVisibilityAccessWrapper = null;
+    }
+    if (handleFocus) {
+      window.removeEventListener('focus', handleFocus);
+      handleFocus = null;
+    }
+
     paywallActive = false;
     activeOverlay = null;
     tamperContext = null;
@@ -1577,8 +1718,8 @@ const run = async () => {
 
 run();
 
-// ==================== BULLETPROOF GLOBAL CLEANUP (NEW) ====================
-window.forceClearPaywall = () => {
+// ==================== BULLETPROOF GLOBAL + PER-INSTANCE CLEANUP ====================
+window.forceClearPaywall = (targetPaywallId = null) => {
   try {
     document.getElementById('ic-paywall-overlay')?.remove();
     document
@@ -1596,7 +1737,6 @@ window.forceClearPaywall = () => {
       body.style.userSelect = '';
     }
 
-    // Kill ALL timers from ANY paywall
     if (window.__ic_paywall_timers) {
       Object.values(window.__ic_paywall_timers).forEach((t) => {
         if (t.timeout) clearTimeout(t.timeout);
@@ -1610,6 +1750,7 @@ window.forceClearPaywall = () => {
     storedBodyStyles = null;
     tamperDetected = false;
     tamperReason = null;
+    tamperContext = null;
 
     if (overlayObserver) {
       overlayObserver.disconnect();
@@ -1620,28 +1761,37 @@ window.forceClearPaywall = () => {
       tamperIntervalId = null;
     }
 
-    console.log('[IC Paywall] ✅ forceClearPaywall completed (timers killed)');
+    if (verifyVisibilityAccessWrapper) {
+      document.removeEventListener(
+        'visibilitychange',
+        verifyVisibilityAccessWrapper,
+      );
+      verifyVisibilityAccessWrapper = null;
+    }
+    if (handleFocus) {
+      window.removeEventListener('focus', handleFocus);
+      handleFocus = null;
+    }
+
+    console.log(
+      `[IC Paywall] ✅ forceClearPaywall completed${
+        targetPaywallId ? ` for ${targetPaywallId}` : ''
+      }`,
+    );
   } catch (e) {
     console.warn('[IC Paywall] forceClearPaywall error (harmless):', e);
   }
 };
 
-// Update the existing tryClearEmbedOverlay to use the new robust function
-const originalTryClear = window.tryClearEmbedOverlay;
 window.tryClearEmbedOverlay = () => {
-  if (window.location.pathname.includes('/room/')) {
-    console.warn('[IC Paywall] Cleanup blocked on room page');
-    return false;
-  }
+  if (window.location.pathname.includes('/room/')) return false;
   window.forceClearPaywall?.();
   return true;
 };
 
-// NEW: Public API for the main CineRooms app to force a fresh paywall instance on every room entry
 window.reinitializePaywall = (backendId, paywallId) => {
   if (!backendId || !paywallId) return;
   const key = `__ic_paywall__${backendId}__${paywallId}`;
   delete window.__ic_paywall_instances?.[key];
-  window.forceClearPaywall?.();
-  console.log(`[IC Paywall] reinitializePaywall called for paywall ${paywallId}`);
+  window.forceClearPaywall?.(paywallId);
 };

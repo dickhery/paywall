@@ -210,12 +210,7 @@ const reportPaymentSuccess = (paywallId, principalText) => {
   fetch(`${TRACKING_URL}?${params.toString()}`, { mode: 'no-cors' }).catch(() => {});
 };
 
-const checkAccessWithGrace = async (authedActor, principal, paywallId) => {
-  const localExpiry = readLocalExpiry(paywallId);
-  if (localExpiry && localExpiry > nowNs()) {
-    return true;
-  }
-
+const verifyAccess = async (authedActor, principal, paywallId) => {
   let hasAccess = await tryHasMyAccess(authedActor, principal, paywallId);
   if (hasAccess) {
     const expiryResponse = await tryGetMyExpiry(authedActor, principal, paywallId);
@@ -223,6 +218,8 @@ const checkAccessWithGrace = async (authedActor, principal, paywallId) => {
     if (expiryNs) writeLocalExpiry(paywallId, expiryNs);
     return true;
   }
+
+  localStorage.removeItem(getLocalExpiryKey(paywallId));
 
   const key = getRecentPaymentKey(paywallId);
   const timestampStr = localStorage.getItem(key);
@@ -236,10 +233,10 @@ const checkAccessWithGrace = async (authedActor, principal, paywallId) => {
         if (expiryNs) writeLocalExpiry(paywallId, expiryNs);
         return true;
       }
-    } else {
-      localStorage.removeItem(key);
     }
   }
+
+  localStorage.removeItem(key);
   return false;
 };
 
@@ -531,9 +528,16 @@ const setupPaymentUI = async (
   ledgerId,
   onAccessGranted,
 ) => {
-  const details = overlay.querySelector('#paywall-details');
-  details.style.display = 'block';
-  details.innerHTML = '';
+  if (overlay.__setupPaymentUiPromise) {
+    await overlay.__setupPaymentUiPromise;
+    return;
+  }
+
+  overlay.__setupPaymentUiPromise = (async () => {
+    const details = overlay.querySelector('#paywall-details');
+    if (!details) return;
+    details.style.display = 'block';
+    details.innerHTML = '';
 
   const priceE8s = BigInt(config.price_e8s);
   const destinationCount = config.destinations?.length ?? 0;
@@ -977,7 +981,14 @@ const setupPaymentUI = async (
       enableRefund();
     }
   });
-  advancedActions.appendChild(retrySettleButton);
+    advancedActions.appendChild(retrySettleButton);
+  })();
+
+  try {
+    await overlay.__setupPaymentUiPromise;
+  } finally {
+    overlay.__setupPaymentUiPromise = null;
+  }
 };
 
 const copyToClipboard = async (text) => {
@@ -1361,7 +1372,7 @@ const run = async () => {
           canisterId: backendId,
         });
 
-        const hasAccess = await checkAccessWithGrace(
+        const hasAccess = await verifyAccess(
           authedActor,
           identity.getPrincipal(),
           paywallId,
@@ -1423,28 +1434,87 @@ const run = async () => {
 
     overlay.querySelector('#paywall-login-prompt').textContent = loginPromptText;
 
-    const existingAuthClient = await createAuthClient();
-    const isAuthed = await existingAuthClient.isAuthenticated();
-    if (isAuthed) {
-      const identity = existingAuthClient.getIdentity();
-      agent.replaceIdentity(identity);
+    showOverlay(overlay);
+
+    const verifyVisibilityAccess = async () => {
+      if (document.visibilityState !== 'visible' || paywallActive) return;
+      const authClient = await createAuthClient();
+      if (!(await authClient.isAuthenticated())) {
+        await showOverlay(overlay);
+        return;
+      }
+      const identity = authClient.getIdentity();
+      const handshakeAgent = new HttpAgent({ host: icHost });
+      handshakeAgent.replaceIdentity(identity);
       const authedActor = Actor.createActor(idlFactory, {
-        agent,
+        agent: handshakeAgent,
         canisterId: backendId,
       });
-      const hasAccess = await checkAccessWithGrace(
+      const stillHasAccess = await verifyAccess(
         authedActor,
         identity.getPrincipal(),
         paywallId,
       );
-      if (hasAccess) {
-        revealContent(overlay);
-        await scheduleAccessTimers(authedActor, identity);
-        return;
+      if (!stillHasAccess) {
+        await showPaywall(authedActor, identity);
       }
-    }
+    };
 
-    showOverlay(overlay);
+    document.addEventListener('visibilitychange', () => {
+      void verifyVisibilityAccess().catch((error) => {
+        console.warn('Visibility access verification failed:', error);
+      });
+    });
+    window.addEventListener('focus', () =>
+      document.dispatchEvent(new Event('visibilitychange')),
+    );
+
+    const verifyAndInitialize = async () => {
+      try {
+        const authClient = await createAuthClient();
+        const isAuthed = await authClient.isAuthenticated();
+
+        if (isAuthed) {
+          const identity = authClient.getIdentity();
+          agent.replaceIdentity(identity);
+
+          const authedActor = Actor.createActor(idlFactory, {
+            agent,
+            canisterId: backendId,
+          });
+
+          const hasAccess = await verifyAccess(
+            authedActor,
+            identity.getPrincipal(),
+            paywallId,
+          );
+
+          if (hasAccess) {
+            revealContent(overlay);
+            await scheduleAccessTimers(authedActor, identity);
+            return;
+          }
+
+          removeLoginControls(overlay);
+          await setupPaymentUI(
+            overlay,
+            authedActor,
+            identity,
+            config,
+            paywallId,
+            agent,
+            ledgerId,
+            async () => {
+              await scheduleAccessTimers(authedActor, identity);
+            },
+          );
+        }
+      } catch (error) {
+        console.warn('Initial verification failed (overlay stays visible):', error);
+      }
+    };
+
+    void verifyAndInitialize();
 
     window.paywallHandshake = async (onFailure) => {
       if (tamperDetected) {
@@ -1465,29 +1535,11 @@ const run = async () => {
           agent: handshakeAgent,
           canisterId: backendId,
         });
-        let hasAccess = await tryHasMyAccess(
+        const hasAccess = await verifyAccess(
           authedActor,
           identity.getPrincipal(),
           paywallId,
         );
-        if (!hasAccess) {
-          const key = getRecentPaymentKey(paywallId);
-          const timestampStr = localStorage.getItem(key);
-          if (timestampStr) {
-            const timestamp = Number.parseInt(timestampStr, 10);
-            if (!Number.isNaN(timestamp) && Date.now() - timestamp < GRACE_PERIOD_MS) {
-              hasAccess = await pollHasAccess(
-                authedActor,
-                identity.getPrincipal(),
-                paywallId,
-                60,
-                800,
-              );
-            } else {
-              localStorage.removeItem(key);
-            }
-          }
-        }
         const tamperOk = await runTamperCheck();
         if (!tamperOk) {
           if (onFailure) onFailure();

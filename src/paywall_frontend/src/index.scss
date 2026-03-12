@@ -281,6 +281,10 @@ select {
   box-shadow: none;
 }
 
+.paywall-summary-loading {
+  cursor: default;
+}
+
 .paywall-summary-text {
   text-align: left;
   word-break: break-word;
@@ -337,4 +341,40 @@ select {
 
 .search-input {
   width: 100%;
+}
+
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  margin-top: 24px;
+  flex-wrap: wrap;
+}
+
+.pagination button {
+  background: #e2e8f0;
+  color: #1d1f27;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.pagination button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pagination button:hover:not(:disabled) {
+  background: #0f62fe;
+  color: white;
+}
+
+.page-info {
+  font-weight: 600;
+  color: #4a5168;
+  white-space: nowrap;
 }

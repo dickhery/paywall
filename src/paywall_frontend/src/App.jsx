@@ -81,6 +81,8 @@ function App() {
   ]);
   const [createExpanded, setCreateExpanded] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 6;
 
   const [paywallId, setPaywallId] = useState('');
   const [ownedPaywalls, setOwnedPaywalls] = useState([]);
@@ -114,14 +116,19 @@ function App() {
     const term = searchTerm.trim().toLowerCase();
     if (!term) return ownedPaywalls;
     return ownedPaywalls.filter((id) => {
+      if (id.toLowerCase().includes(term)) return true;
       const config = paywallConfigs[id];
       if (!config) return false;
-      return (
-        id.toLowerCase().includes(term)
-        || config.target_url.toLowerCase().includes(term)
-      );
+      return config.target_url.toLowerCase().includes(term);
     });
   }, [ownedPaywalls, paywallConfigs, searchTerm]);
+
+  const paginatedPaywalls = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredOwnedPaywalls.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredOwnedPaywalls, currentPage]);
+
+  const totalPages = Math.ceil(filteredOwnedPaywalls.length / ITEMS_PER_PAGE);
 
   const editPriceE8s = useMemo(() => toE8s(editPriceIcp), [editPriceIcp]);
   const editFeeE8s = useMemo(
@@ -155,6 +162,20 @@ function App() {
   useEffect(() => {
     initAnalytics();
   }, [initAnalytics]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
+
+  useEffect(() => {
+    if (totalPages === 0 && currentPage !== 1) {
+      setCurrentPage(1);
+      return;
+    }
+    if (totalPages > 0 && currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -1065,10 +1086,23 @@ function App() {
             ) : filteredOwnedPaywalls.length === 0 ? (
               <p className="hint">No paywalls match your search.</p>
             ) : (
-              <ul className="list">
-                {filteredOwnedPaywalls.map((id) => {
+              <>
+                <ul className="list">
+                  {paginatedPaywalls.map((id) => {
                   const config = paywallConfigs[id];
-                  if (!config) return null;
+                  if (!config) {
+                    return (
+                      <li
+                        key={id}
+                        className="paywall-item"
+                      >
+                        <div className="paywall-summary paywall-summary-loading">
+                          <span className="paywall-summary-text">{id}</span>
+                          <span className="hint">Loading details...</span>
+                        </div>
+                      </li>
+                    );
+                  }
                   const isExpanded = expandedPaywalls.has(id);
                   const openSections = expandedSections.get(id) || new Set();
                   const isDetailsOpen = openSections.has('details');
@@ -1577,6 +1611,29 @@ function App() {
                   );
                 })}
               </ul>
+
+              {totalPages > 1 && (
+                <div className="pagination">
+                  <button
+                    type="button"
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  >
+                    ← Previous
+                  </button>
+                  <span className="page-info">
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={currentPage === totalPages}
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  >
+                    Next →
+                  </button>
+                </div>
+              )}
+              </>
             )}
           </section>
           <section className="card">

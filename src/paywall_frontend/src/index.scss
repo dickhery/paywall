@@ -281,6 +281,10 @@ select {
   box-shadow: none;
 }
 
+.paywall-summary-loading {
+  cursor: default;
+}
+
 .paywall-summary-text {
   text-align: left;
   word-break: break-word;

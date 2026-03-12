@@ -116,12 +116,10 @@ function App() {
     const term = searchTerm.trim().toLowerCase();
     if (!term) return ownedPaywalls;
     return ownedPaywalls.filter((id) => {
+      if (id.toLowerCase().includes(term)) return true;
       const config = paywallConfigs[id];
       if (!config) return false;
-      return (
-        id.toLowerCase().includes(term)
-        || config.target_url.toLowerCase().includes(term)
-      );
+      return config.target_url.toLowerCase().includes(term);
     });
   }, [ownedPaywalls, paywallConfigs, searchTerm]);
 
@@ -1092,7 +1090,19 @@ function App() {
                 <ul className="list">
                   {paginatedPaywalls.map((id) => {
                   const config = paywallConfigs[id];
-                  if (!config) return null;
+                  if (!config) {
+                    return (
+                      <li
+                        key={id}
+                        className="paywall-item"
+                      >
+                        <div className="paywall-summary paywall-summary-loading">
+                          <span className="paywall-summary-text">{id}</span>
+                          <span className="hint">Loading details...</span>
+                        </div>
+                      </li>
+                    );
+                  }
                   const isExpanded = expandedPaywalls.has(id);
                   const openSections = expandedSections.get(id) || new Set();
                   const isDetailsOpen = openSections.has('details');

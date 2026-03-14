@@ -694,6 +694,10 @@ function App() {
           Configure paywalls, generate embed scripts, and verify access using
           Internet Identity and ICP ledger payments.
         </p>
+        <p>
+          Paywalls are free to build. IC Paywall only collects 1% of every
+          transaction so we don&apos;t get paid until you do!
+        </p>
       </header>
 
       <section className="card">
